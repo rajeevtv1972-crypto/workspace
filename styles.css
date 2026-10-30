@@ -38,3 +38,5 @@
 .converter-heading .tool-icon{width:56px;height:56px;flex-basis:56px}
 .converter-heading .tool-icon svg{width:30px;height:30px}
 @media(max-width:650px){.brand-mark{width:31px;height:31px}.tool-icon{width:49px;height:49px;flex-basis:49px}}
+
+.card-arrow:after{content:none!important}.card-arrow svg{width:15px;height:15px;color:#8295dc;display:block;filter:drop-shadow(0 0 4px rgba(105,145,255,.38))}
