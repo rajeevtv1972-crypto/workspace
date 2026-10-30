@@ -5,3 +5,36 @@
 [hidden]{display:none!important}
 
 .tool-options{display:grid;gap:10px;margin-top:13px}.option-field{display:grid;gap:6px}.option-field>span{font-size:11px;font-weight:700;color:#34405a}.option-field input,.option-field select{width:100%;height:40px;padding:0 11px;border:1px solid #e5e9f2;border-radius:7px;background:#fff;color:#34405a;font:12px "DM Sans";outline:none}.option-field input:focus,.option-field select:focus{border-color:#7187f3;box-shadow:0 0 0 3px #5874f51a}.option-field small{font-size:10px;line-height:1.5;color:#8b95a7}.word-export-sheet{position:fixed;left:-20000px;top:0;width:794px;min-height:1123px;padding:48px 58px;background:#fff;color:#222;font:15px/1.55 Arial,sans-serif;z-index:-1;overflow:visible}.word-export-sheet img{max-width:100%;height:auto}.word-export-sheet table{width:100%;border-collapse:collapse}.word-export-sheet td,.word-export-sheet th{border:1px solid #bbb;padding:5px}
+
+/* Futuristic Workspace icon system */
+.icon-sprite{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+.brand-mark{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:linear-gradient(140deg,#7b6cff 0%,#347ef7 55%,#18d5cf 100%);box-shadow:0 0 0 1px rgba(114,153,255,.26),0 5px 16px rgba(64,104,237,.25);transform:none;position:relative;overflow:hidden}
+.brand-mark:after{content:"";position:absolute;inset:1px;border-radius:10px;border:1px solid rgba(255,255,255,.28);pointer-events:none}
+.brand-glyph{width:25px;height:25px;color:#fff;position:relative;z-index:1}
+.footer-brand .brand-mark{width:29px;height:29px}
+.footer-brand .brand-glyph{width:22px;height:22px}
+.tool-icon{--icon-a:#647bff;--icon-b:#27d4dc;width:52px;height:52px;flex:0 0 52px;display:grid;place-items:center;border-radius:15px;position:relative;isolation:isolate;overflow:hidden;color:#9deaff;background:linear-gradient(145deg,#131e3c 0%,#18264b 52%,#102d46 100%);border:1px solid rgba(115,157,255,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 7px 18px rgba(33,56,115,.12);transition:transform .2s,border-color .2s,box-shadow .2s}
+.tool-icon:before{content:"";position:absolute;inset:-30%;z-index:-1;background:radial-gradient(circle at 30% 25%,var(--icon-a),transparent 48%),radial-gradient(circle at 80% 82%,var(--icon-b),transparent 48%);opacity:.3;filter:blur(9px)}
+.tool-icon:after{content:"";position:absolute;inset:1px;border-radius:14px;border:1px solid rgba(255,255,255,.09);pointer-events:none}
+.tool-icon svg{width:28px;height:28px;display:block;color:var(--icon-b);filter:drop-shadow(0 0 6px rgba(75,220,255,.4));transition:transform .2s}
+.tool-card:hover .tool-icon{transform:translateY(-2px) scale(1.04);border-color:var(--icon-b);box-shadow:0 0 20px rgba(82,193,255,.18),inset 0 1px 0 rgba(255,255,255,.16)}
+.tool-card:hover .tool-icon svg{transform:scale(1.08)}
+.icon-blue{--icon-a:#6876ff;--icon-b:#64dcff}
+.icon-violet{--icon-a:#a06bff;--icon-b:#c1a2ff}
+.icon-orange{--icon-a:#ff8b63;--icon-b:#ffc28b}
+.icon-green{--icon-a:#27c99b;--icon-b:#70f0c8}
+.icon-sky{--icon-a:#459bff;--icon-b:#8bd9ff}
+.icon-pink{--icon-a:#ed68b9;--icon-b:#ffa2d7}
+.icon-yellow{--icon-a:#e2b34e;--icon-b:#ffe39a}
+.icon-indigo{--icon-a:#737dff;--icon-b:#aab5ff}
+.icon-teal{--icon-a:#22c7bb;--icon-b:#86fff0}
+.search-box>span{display:none}
+.search-glyph{width:19px;height:19px;flex:0 0 19px;color:#7284bd}
+.ui-icon{width:22px;height:22px;display:block;color:#6378da}
+.cta-arrow{width:16px;height:16px}
+.footnote-spark{width:12px;height:12px;display:inline-block;vertical-align:-2px;color:#6681f7;margin-right:4px}
+.trust-icon{display:grid;place-items:center}
+.trust-icon svg{width:19px;height:19px;color:#617cf4;filter:drop-shadow(0 0 5px rgba(87,120,255,.35))}
+.converter-heading .tool-icon{width:56px;height:56px;flex-basis:56px}
+.converter-heading .tool-icon svg{width:30px;height:30px}
+@media(max-width:650px){.brand-mark{width:31px;height:31px}.tool-icon{width:49px;height:49px;flex-basis:49px}}
