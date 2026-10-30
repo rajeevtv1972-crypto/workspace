@@ -99,6 +99,27 @@
     </section>
   </main>
   <footer><a class="brand footer-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span></span><span>workspace<span class="brand-accent">.</span></span></a><span>© <span id="year"></span> Workspace. Made for getting things done.</span><a href="#tools">Explore tools ↑</a></footer>
+  <section class="converter-overlay" id="converterOverlay" aria-hidden="true">
+    <div class="converter-dialog" role="dialog" aria-modal="true" aria-labelledby="converterTitle">
+      <button class="converter-close" id="closeConverter" aria-label="Close converter">×</button>
+      <div class="converter-heading">
+        <span class="tool-icon icon-blue"><b>PDF</b><i>→</i><strong>W</strong></span>
+        <div><div class="section-kicker">WORKSPACE CONVERTER</div><h2 id="converterTitle">PDF to Word</h2><p>Convert your PDF into an editable DOCX document.</p></div>
+      </div>
+      <div class="upload-zone" id="uploadZone" tabindex="0" role="button" aria-label="Choose a PDF file or drop it here">
+        <div class="upload-symbol">↑</div>
+        <strong>Choose a PDF file or drop it here</strong>
+        <span>PDF files up to 15 MB · Maximum 50 pages</span>
+        <button class="choose-file-btn" id="chooseFile" type="button">Select PDF</button>
+        <input id="pdfInput" type="file" accept="application/pdf,.pdf" hidden>
+      </div>
+      <div class="selected-file" id="selectedFile" hidden><span class="selected-file-icon">PDF</span><div><strong id="selectedFileName"></strong><small id="selectedFileSize"></small></div><button id="removeFile" aria-label="Remove selected file">×</button></div>
+      <div class="conversion-status" id="conversionStatus" aria-live="polite" hidden><div class="progress-track"><span id="progressBar"></span></div><p id="statusMessage">Preparing your document…</p></div>
+      <div class="converter-error" id="converterError" role="alert" hidden></div>
+      <button class="convert-button" id="convertButton" disabled>Convert to Word <span>→</span></button>
+      <p class="privacy-caption">Your file is processed temporarily and is not stored as a permanent upload.</p>
+    </div>
+  </section>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="script.js"></script>
 </body>
