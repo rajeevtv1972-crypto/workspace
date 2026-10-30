@@ -117,10 +117,12 @@
       <div class="conversion-status" id="conversionStatus" aria-live="polite" hidden><div class="progress-track"><span id="progressBar"></span></div><p id="statusMessage">Preparing your document…</p></div>
       <div class="converter-error" id="converterError" role="alert" hidden></div>
       <button class="convert-button" id="convertButton" disabled>Convert to Word <span>→</span></button>
-      <p class="privacy-caption">Your file is processed temporarily and is not stored as a permanent upload.</p>
+      <p class="privacy-caption">Your PDF never leaves your device. Conversion happens locally in this browser.</p>
     </div>
   </section>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
