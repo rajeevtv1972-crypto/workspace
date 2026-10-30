@@ -60,7 +60,7 @@ const uploadHint = document.getElementById("uploadHint");
 const chooseFileButton = document.getElementById("chooseFile");
 
 const TOOL_CONFIG = {
-  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Extract selectable PDF text into an editable Word document.", button: "Convert to Word" },
+  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Choose whether to preserve the PDF appearance or extract editable text.", button: "Convert to Word" },
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
@@ -119,7 +119,10 @@ function resetTool() {
 function renderToolOptions() {
   toolOptions.innerHTML = "";
   toolOptions.hidden = true;
-  if (activeTool === "Split PDF") {
+  if (activeTool === "PDF to Word") {
+    toolOptions.innerHTML = '<label class="option-field"><span>Conversion mode</span><select id="wordMode"><option value="visual" selected>Match original PDF appearance</option><option value="editable">Extract editable text (basic)</option></select><small>Visual mode keeps the original fonts, line positions, tables, graphics and page layout as a page image. Text will not be directly editable. Editable mode produces real text but may change the layout.</small></label>';
+    toolOptions.hidden = false;
+  } else if (activeTool === "Split PDF") {
     toolOptions.innerHTML = '<label class="option-field"><span>Pages to extract</span><input id="splitRange" type="text" value="1-" placeholder="Example: 1, 3-5"><small>Use page numbers and ranges, separated by commas. Leave as 1- for all pages.</small></label>';
     toolOptions.hidden = false;
   } else if (activeTool === "Rotate PDF") {
@@ -220,7 +223,7 @@ function groupPdfTextIntoLines(items) {
     return line.trim();
   }).filter(Boolean);
 }
-async function pdfToWord(file) {
+async function pdfToWordEditable(file) {
   if (!window.docx) throw new Error("The Word generator could not load. Refresh the page and try again.");
   const pdf = await loadPdfJs(file);
   if (pdf.numPages > 50) { await pdf.destroy(); throw new Error("This PDF has more than 50 pages."); }
@@ -245,6 +248,93 @@ async function pdfToWord(file) {
   const doc = new docx.Document({ creator:"Workspace PDF", title:safeBaseName(file.name), sections:[{properties:{},children:paragraphs}] });
   return await docx.Packer.toBlob(doc);
 }
+async function pdfToWordVisual(file) {
+  if (!window.docx) throw new Error("The Word document library could not load. Refresh the page and try again.");
+  const pdf = await loadPdfJs(file);
+  if (pdf.numPages > 20) {
+    await pdf.destroy();
+    throw new Error("Visual-fidelity conversion is limited to 20 pages. Split the PDF into smaller files and convert each part.");
+  }
+
+  const sections = [];
+  try {
+    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
+      setProgress(5 + ((pageNo - 1) / pdf.numPages) * 82, "Preserving original page " + pageNo + " of " + pdf.numPages + "…");
+      const page = await pdf.getPage(pageNo);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const renderScale = 2.2;
+      const viewport = page.getViewport({ scale: renderScale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("Your browser could not create an image canvas for this page.");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+
+      const pngBlob = await new Promise((resolve, reject) => {
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not render page " + pageNo + " as an image.")), "image/png");
+      });
+      const imageData = new Uint8Array(await pngBlob.arrayBuffer());
+
+      // PDF.js viewport dimensions are CSS pixels at 96 DPI. DOCX image
+      // transformations use the same pixel-to-physical-size convention.
+      const pageWidthTwips = Math.round(baseViewport.width * 15);
+      const pageHeightTwips = Math.round(baseViewport.height * 15);
+      const image = new docx.ImageRun({
+        type: "png",
+        data: imageData,
+        transformation: {
+          width: baseViewport.width,
+          height: baseViewport.height
+        },
+        altText: {
+          title: "Original PDF page " + pageNo,
+          description: "A visual copy of page " + pageNo + " from " + file.name,
+          name: "PDF page " + pageNo
+        }
+      });
+      const paragraph = new docx.Paragraph({
+        alignment: docx.AlignmentType ? docx.AlignmentType.CENTER : "center",
+        spacing: { before: 0, after: 0 },
+        children: [image]
+      });
+
+      sections.push({
+        properties: {
+          page: {
+            size: { width: pageWidthTwips, height: pageHeightTwips },
+            margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0 }
+          }
+        },
+        children: [paragraph]
+      });
+
+      canvas.width = 1;
+      canvas.height = 1;
+      page.cleanup();
+    }
+  } finally {
+    await pdf.destroy();
+  }
+
+  setProgress(92, "Building a Word file with the original page appearance…");
+  const document = new docx.Document({
+    creator: "Workspace PDF",
+    title: safeBaseName(file.name),
+    description: "Visual-fidelity PDF conversion. Each Word page contains a high-resolution image of the original PDF page.",
+    sections
+  });
+  return await docx.Packer.toBlob(document);
+}
+
+async function pdfToWord(file) {
+  const mode = document.getElementById("wordMode")?.value || "visual";
+  if (mode === "editable") return await pdfToWordEditable(file);
+  return await pdfToWordVisual(file);
+}
+
 async function mergePDF(files) {
   const { PDFDocument } = getPDFLib();
   const output = await PDFDocument.create();
@@ -435,7 +525,7 @@ async function ocrPDF(file) {
 async function runActiveTool() {
   const file=chosenFiles[0];
   switch(activeTool){
-    case "PDF to Word": return {blob:await pdfToWord(file),name:safeBaseName(file.name)+".docx"};
+    case "PDF to Word": return {blob:await pdfToWord(file),name:safeBaseName(file.name)+"-converted.docx"};
     case "Merge PDF": return {blob:await mergePDF(chosenFiles),name:"merged-document.pdf"};
     case "Split PDF": return {blob:await splitPDF(file),name:safeBaseName(file.name)+"-selected-pages.pdf"};
     case "Compress PDF": return {blob:await compressPDF(file),name:safeBaseName(file.name)+"-compressed.pdf"};
