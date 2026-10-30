@@ -1,0 +1,17 @@
+{
+  "name": "Workspace PDF",
+  "short_name": "Workspace",
+  "description": "A private browser-based PDF toolbox",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1530",
+  "theme_color": "#111a35",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
