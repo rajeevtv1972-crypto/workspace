@@ -304,7 +304,7 @@ async function pdfToWordVisual(file) {
       sections.push({
         properties: {
           page: {
-            size: { width: pageWidthTwips, height: pageHeightTwips },
+            size: { width: pageWidthTwips, height: pageHeightTwips, orientation: baseViewport.width > baseViewport.height ? "landscape" : "portrait" },
             margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0 }
           }
         },
