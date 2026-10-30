@@ -140,6 +140,7 @@ function fileExtension(name) {
 function validateFiles(files) {
   const config = TOOL_CONFIG[activeTool];
   if (!files.length) return "Please choose a file first.";
+  if (activeTool === "Merge PDF" && files.length < 2) return "Choose at least two PDFs to merge.";
   if (files.length > (config.multiple ? (activeTool === "JPG to PDF" ? 25 : 10) : 1)) {
     return activeTool === "JPG to PDF" ? "Choose no more than 25 images." : "Choose no more than 10 files.";
   }
@@ -320,8 +321,7 @@ async function compressPDF(file) {
   await pdf.destroy();
   const optimized = new Blob([await output.save({useObjectStreams:true})],{type:"application/pdf"});
   if (optimized.size >= file.size) {
-    const original = new Blob([await file.arrayBuffer()],{type:"application/pdf"});
-    return original;
+    throw new Error("This PDF is already smaller than the compressed version we can create in your browser. Your original file has not been changed.");
   }
   return optimized;
 }
