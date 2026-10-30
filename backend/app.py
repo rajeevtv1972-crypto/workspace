@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pdf2docx import Converter
 
 app = FastAPI(
@@ -111,9 +111,15 @@ async def pdf_to_word(file: UploadFile = File(...)):
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
             raise HTTPException(status_code=422, detail="Conversion did not produce a Word document.")
 
-        return FileResponse(
-            output_path,
+        # Read the result before the temporary directory is cleaned up.
+        with open(output_path, "rb") as docx_file:
+            docx_data = docx_file.read()
+
+        return Response(
+            content=docx_data,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=f"{safe_stem}.docx",
-            background=None
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_stem}.docx"',
+                "Cache-Control": "no-store"
+            }
         )
