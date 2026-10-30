@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f7f8fc">
+  <meta name="description" content="A simple, secure workspace for your PDF tools. Convert, organize and optimize documents online.">
+  <title>Workspace PDF — All your PDF tools in one place</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#" aria-label="Workspace PDF home">
+      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <span>workspace<span class="brand-accent">.</span></span>
+    </a>
+    <nav class="main-nav" aria-label="Main navigation">
+      <a class="nav-link active" href="#tools">All tools</a>
+      <a class="nav-link" href="#tools" data-filter-link="organize">Organize PDF</a>
+      <a class="nav-link" href="#tools" data-filter-link="convert">Convert PDF</a>
+      <a class="nav-link" href="#tools" data-filter-link="optimize">Optimize PDF</a>
+    </nav>
+    <div class="header-actions">
+      <span class="privacy-note"><i></i> Files stay yours</span>
+      <button class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-glow"></div>
+      <div class="hero-content">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR DOCUMENTS, SIMPLIFIED</div>
+        <h1>Everything you need<br>to work with <span>PDFs.</span></h1>
+        <p class="hero-copy">A smarter little workspace for your documents. Convert, organize and optimize PDFs — all in one place.</p>
+        <a class="hero-cta" href="#tools">Explore all PDF tools <span>↗</span></a>
+        <div class="hero-footnote"><span>✦</span> No sign-up needed to get started</div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+        <div class="file-card file-back"><div class="file-lines"><b></b><i></i><i></i><i></i></div></div>
+        <div class="file-card file-front"><div class="pdf-icon"><span>PDF</span></div><div class="file-title">Your document</div><div class="file-lines"><b></b><i></i><i></i><i></i><i></i></div><div class="file-footer"><span></span><span></span></div></div>
+        <div class="float-chip chip-word"><b>W</b> Word</div>
+        <div class="float-chip chip-check">✓ &nbsp; Ready to work</div>
+      </div>
+    </section>
+
+    <section class="tools-section" id="tools">
+      <div class="section-heading">
+        <div><div class="section-kicker">THE TOOLBOX</div><h2>What would you like to do?</h2><p>Pick a tool and let’s get to work.</p></div>
+        <label class="search-box"><span>⌕</span><input id="toolSearch" type="search" placeholder="Search tools..." aria-label="Search PDF tools"><kbd>⌘ K</kbd></label>
+      </div>
+      <div class="filters" role="group" aria-label="Filter tools">
+        <button class="filter-btn selected" data-filter="all">All tools <span>09</span></button>
+        <button class="filter-btn" data-filter="organize">Organize PDF</button>
+        <button class="filter-btn" data-filter="convert">Convert PDF</button>
+        <button class="filter-btn" data-filter="optimize">Optimize PDF</button>
+      </div>
+      <div class="tools-grid" id="toolsGrid">
+        <button class="tool-card featured" data-category="convert" data-name="pdf to word convert">
+          <span class="tool-icon icon-blue"><b>PDF</b><i>→</i><strong>W</strong></span><span class="tool-copy"><strong>PDF to Word</strong><small>Turn PDFs into editable Word documents.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="organize" data-name="merge pdf combine">
+          <span class="tool-icon icon-violet"><b>▤</b></span><span class="tool-copy"><strong>Merge PDF</strong><small>Combine multiple files into one.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="organize" data-name="split pdf separate pages">
+          <span class="tool-icon icon-orange"><b>▥</b></span><span class="tool-copy"><strong>Split PDF</strong><small>Separate pages into individual files.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="optimize" data-name="compress pdf reduce size">
+          <span class="tool-icon icon-green"><b>⇣</b></span><span class="tool-copy"><strong>Compress PDF</strong><small>Make your PDF files smaller.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="convert" data-name="word to pdf docx">
+          <span class="tool-icon icon-sky"><b>W</b><i>→</i><strong>PDF</strong></span><span class="tool-copy"><strong>Word to PDF</strong><small>Save Word documents as PDFs.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="convert" data-name="pdf to jpg images">
+          <span class="tool-icon icon-pink"><b>▧</b></span><span class="tool-copy"><strong>PDF to JPG</strong><small>Convert PDF pages into images.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="convert" data-name="jpg to pdf images">
+          <span class="tool-icon icon-yellow"><b>▧</b><i>→</i><strong>PDF</strong></span><span class="tool-copy"><strong>JPG to PDF</strong><small>Turn images into a PDF document.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="organize" data-name="rotate pdf pages">
+          <span class="tool-icon icon-indigo"><b>↻</b></span><span class="tool-copy"><strong>Rotate PDF</strong><small>Fix the orientation of your pages.</small></span><span class="card-arrow">↗</span>
+        </button>
+        <button class="tool-card" data-category="optimize" data-name="ocr pdf scanned searchable text">
+          <span class="tool-icon icon-teal"><b>OCR</b></span><span class="tool-copy"><strong>OCR PDF</strong><small>Make scanned documents searchable.</small></span><span class="card-arrow">↗</span>
+        </button>
+      </div>
+      <div class="empty-state" id="emptyState" hidden>No tools match that search. Try another keyword.</div>
+      <div class="coming-note"><span>✦</span> More useful tools are on the way. We’re building this workspace one tool at a time.</div>
+    </section>
+
+    <section class="trust-strip">
+      <div><span class="trust-icon">⌁</span><strong>Simple by design</strong><small>No clutter. Just useful tools.</small></div>
+      <div><span class="trust-icon">◈</span><strong>Privacy-minded</strong><small>Your documents deserve care.</small></div>
+      <div><span class="trust-icon">↗</span><strong>Works everywhere</strong><small>Desktop, tablet and mobile.</small></div>
+    </section>
+  </main>
+  <footer><a class="brand footer-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span></span><span>workspace<span class="brand-accent">.</span></span></a><span>© <span id="year"></span> Workspace. Made for getting things done.</span><a href="#tools">Explore tools ↑</a></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="script.js"></script>
+</body>
+</html>
