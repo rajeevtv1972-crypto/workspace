@@ -9,12 +9,32 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="manifest" href="site.webmanifest">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<svg class="icon-sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+<symbol id="i-brand" viewBox="0 0 32 32"><path d="M7 4.5h12l6 6V27H7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M19 4.5v6h6M11 17h10M11 21h7m-6-10 2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-pdf-word" viewBox="0 0 32 32"><path d="M5.5 3.5h13l6 6v7M18.5 3.5v6h6M5.5 3.5v25h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 15h9M9 19h7M19 21h9m-4-4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-merge" viewBox="0 0 32 32"><path d="M5 5h13l4 4v5M18 5v4h4M5 5v22h7M5 10h9M5 14h7M16 18v9m-4-4 4 4 4-4M27 18v9m-4-4 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-split" viewBox="0 0 32 32"><path d="M7 4h13l5 5v19H7zM20 4v5h5M11 13h10M11 17h7M16 20v7m0-7-4 3m4-3 4 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-compress" viewBox="0 0 32 32"><path d="M12 4H5v7m15-7h7v7M5 21v7h7m15-7v7h-7M12 12 5 5m15 7 7-7m-15 15-7 7m15-7 7 7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M12 12h8v8h-8z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="i-word-pdf" viewBox="0 0 32 32"><path d="M7 4h12l5 5v17H7zM19 4v5h5M11 14h9M11 18h7M11 22h5M4 16H1m3 0-2-2m2 2-2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-pdf-image" viewBox="0 0 32 32"><path d="M6 3.5h13l6 6v19H6zM19 3.5v6h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="10" y="14" width="13" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="14" cy="17.5" r="1.3" fill="currentColor"/><path d="m11 23 4-4 2.5 2 2-1.5 3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+<symbol id="i-image-pdf" viewBox="0 0 32 32"><rect x="4" y="5" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="10" r="1.5" fill="currentColor"/><path d="m5 19 5-5 3 3 2.5-2 4.5 4M18 14h9v14H11v-7M21 18h6m-6 4h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-rotate" viewBox="0 0 32 32"><path d="M25 13A10.5 10.5 0 0 0 7 8L4 11m0-7v7h7M7 19a10.5 10.5 0 0 0 18 5l3-3m0 7v-7h-7" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 12h8v8h-8z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+<symbol id="i-ocr" viewBox="0 0 32 32"><path d="M5 11V5h6M21 5h6v6M27 21v6h-6M11 27H5v-6M9 20l4-9h2l4 9m-8-3h6m3 3v-9h3a3 3 0 0 1 0 6h-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-shield" viewBox="0 0 32 32"><path d="M16 3 26 7v8c0 6.5-4.3 11-10 14C10.3 26 6 21.5 6 15V7zM11 16l3.2 3.2L21.5 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-spark" viewBox="0 0 32 32"><path d="m16 3 2.5 9.5L28 15l-9.5 2.5L16 27l-2.5-9.5L4 15l9.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m26 3 .8 3.2L30 7l-3.2.8L26 11l-.8-3.2L22 7l3.2-.8z" fill="none" stroke="currentColor" stroke-width="1.3"/></symbol>
+<symbol id="i-devices" viewBox="0 0 32 32"><rect x="3" y="5" width="20" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 27h8m-4-6v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="20" y="12" width="9" height="16" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+<symbol id="i-search" viewBox="0 0 32 32"><circle cx="14" cy="14" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="m20 20 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-menu" viewBox="0 0 32 32"><path d="M5 9h22M5 16h22M5 23h22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 19 19 5M8 5h11v11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
   <header class="site-header">
     <a class="brand" href="#" aria-label="Workspace PDF home">
-      <span class="brand-mark"><span></span><span></span><span></span></span>
+      <span class="brand-mark"><svg class="brand-glyph" aria-hidden="true"><use href="#i-brand"></use></svg></span>
       <span>workspace<span class="brand-accent">.</span></span>
     </a>
     <nav class="main-nav" aria-label="Main navigation">
@@ -25,7 +45,7 @@
     </nav>
     <div class="header-actions">
       <span class="privacy-note"><i></i> Files stay yours</span>
-      <button class="menu-toggle" id="menuToggle" aria-label="Open menu">☰</button>
+      <button class="menu-toggle" id="menuToggle" aria-label="Open menu"><svg class="ui-icon" aria-hidden="true"><use href="#i-menu"></use></svg></button>
     </div>
   </header>
 
@@ -36,8 +56,8 @@
         <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR DOCUMENTS, SIMPLIFIED</div>
         <h1>Everything you need<br>to work with <span>PDFs.</span></h1>
         <p class="hero-copy">A smarter little workspace for your documents. Convert, organize and optimize PDFs — all in one place.</p>
-        <a class="hero-cta" href="#tools">Explore all PDF tools <span>↗</span></a>
-        <div class="hero-footnote"><span>✦</span> No sign-up needed to get started</div>
+        <a class="hero-cta" href="#tools">Explore all PDF tools <svg class="cta-arrow" aria-hidden="true"><use href="#i-arrow"></use></svg></a>
+        <div class="hero-footnote"><svg class="footnote-spark" aria-hidden="true"><use href="#i-spark"></use></svg> No sign-up needed to get started</div>
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
@@ -51,7 +71,7 @@
     <section class="tools-section" id="tools">
       <div class="section-heading">
         <div><div class="section-kicker">THE TOOLBOX</div><h2>What would you like to do?</h2><p>Pick a tool and let’s get to work.</p></div>
-        <label class="search-box"><span>⌕</span><input id="toolSearch" type="search" placeholder="Search tools..." aria-label="Search PDF tools"><kbd>⌘ K</kbd></label>
+        <label class="search-box"><svg class="search-glyph" aria-hidden="true"><use href="#i-search"></use></svg><input id="toolSearch" type="search" placeholder="Search tools..." aria-label="Search PDF tools"><kbd>⌘ K</kbd></label>
       </div>
       <div class="filters" role="group" aria-label="Filter tools">
         <button class="filter-btn selected" data-filter="all">All tools <span>09</span></button>
@@ -61,31 +81,31 @@
       </div>
       <div class="tools-grid" id="toolsGrid">
         <button class="tool-card featured" data-category="convert" data-name="pdf to word convert">
-          <span class="tool-icon icon-blue"><b>PDF</b><i>→</i><strong>W</strong></span><span class="tool-copy"><strong>PDF to Word</strong><small>Turn PDFs into editable Word documents.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-blue"><svg aria-hidden="true"><use href="#i-pdf-word"></use></svg></span><span class="tool-copy"><strong>PDF to Word</strong><small>Turn PDFs into editable Word documents.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="organize" data-name="merge pdf combine">
-          <span class="tool-icon icon-violet"><b>▤</b></span><span class="tool-copy"><strong>Merge PDF</strong><small>Combine multiple files into one.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-violet"><svg aria-hidden="true"><use href="#i-merge"></use></svg></span><span class="tool-copy"><strong>Merge PDF</strong><small>Combine multiple files into one.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="organize" data-name="split pdf separate pages">
-          <span class="tool-icon icon-orange"><b>▥</b></span><span class="tool-copy"><strong>Split PDF</strong><small>Separate pages into individual files.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-orange"><svg aria-hidden="true"><use href="#i-split"></use></svg></span><span class="tool-copy"><strong>Split PDF</strong><small>Separate pages into individual files.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="optimize" data-name="compress pdf reduce size">
-          <span class="tool-icon icon-green"><b>⇣</b></span><span class="tool-copy"><strong>Compress PDF</strong><small>Make your PDF files smaller.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-green"><svg aria-hidden="true"><use href="#i-compress"></use></svg></span><span class="tool-copy"><strong>Compress PDF</strong><small>Make your PDF files smaller.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="convert" data-name="word to pdf docx">
-          <span class="tool-icon icon-sky"><b>W</b><i>→</i><strong>PDF</strong></span><span class="tool-copy"><strong>Word to PDF</strong><small>Save Word documents as PDFs.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-sky"><svg aria-hidden="true"><use href="#i-word-pdf"></use></svg></span><span class="tool-copy"><strong>Word to PDF</strong><small>Save Word documents as PDFs.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="convert" data-name="pdf to jpg images">
-          <span class="tool-icon icon-pink"><b>▧</b></span><span class="tool-copy"><strong>PDF to JPG</strong><small>Convert PDF pages into images.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-pink"><svg aria-hidden="true"><use href="#i-pdf-image"></use></svg></span><span class="tool-copy"><strong>PDF to JPG</strong><small>Convert PDF pages into images.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="convert" data-name="jpg to pdf images">
-          <span class="tool-icon icon-yellow"><b>▧</b><i>→</i><strong>PDF</strong></span><span class="tool-copy"><strong>JPG to PDF</strong><small>Turn images into a PDF document.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-yellow"><svg aria-hidden="true"><use href="#i-image-pdf"></use></svg></span><span class="tool-copy"><strong>JPG to PDF</strong><small>Turn images into a PDF document.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="organize" data-name="rotate pdf pages">
-          <span class="tool-icon icon-indigo"><b>↻</b></span><span class="tool-copy"><strong>Rotate PDF</strong><small>Fix the orientation of your pages.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-indigo"><svg aria-hidden="true"><use href="#i-rotate"></use></svg></span><span class="tool-copy"><strong>Rotate PDF</strong><small>Fix the orientation of your pages.</small></span><span class="card-arrow">↗</span>
         </button>
         <button class="tool-card" data-category="optimize" data-name="ocr pdf scanned searchable text">
-          <span class="tool-icon icon-teal"><b>OCR</b></span><span class="tool-copy"><strong>OCR PDF</strong><small>Make scanned documents searchable.</small></span><span class="card-arrow">↗</span>
+          <span class="tool-icon icon-teal"><svg aria-hidden="true"><use href="#i-ocr"></use></svg></span><span class="tool-copy"><strong>OCR PDF</strong><small>Make scanned documents searchable.</small></span><span class="card-arrow">↗</span>
         </button>
       </div>
       <div class="empty-state" id="emptyState" hidden>No tools match that search. Try another keyword.</div>
@@ -93,9 +113,9 @@
     </section>
 
     <section class="trust-strip">
-      <div><span class="trust-icon">⌁</span><strong>Simple by design</strong><small>No clutter. Just useful tools.</small></div>
-      <div><span class="trust-icon">◈</span><strong>Privacy-minded</strong><small>Your documents deserve care.</small></div>
-      <div><span class="trust-icon">↗</span><strong>Works everywhere</strong><small>Desktop, tablet and mobile.</small></div>
+      <div><span class="trust-icon"><svg aria-hidden="true"><use href="#i-spark"></use></svg></span><strong>Simple by design</strong><small>No clutter. Just useful tools.</small></div>
+      <div><span class="trust-icon"><svg aria-hidden="true"><use href="#i-shield"></use></svg></span><strong>Privacy-minded</strong><small>Your documents deserve care.</small></div>
+      <div><span class="trust-icon"><svg aria-hidden="true"><use href="#i-devices"></use></svg></span><strong>Works everywhere</strong><small>Desktop, tablet and mobile.</small></div>
     </section>
   </main>
   <footer><a class="brand footer-brand" href="#"><span class="brand-mark"><span></span><span></span><span></span></span><span>workspace<span class="brand-accent">.</span></span></a><span>© <span id="year"></span> Workspace. Made for getting things done.</span><a href="#tools">Explore tools ↑</a></footer>
@@ -103,8 +123,8 @@
     <div class="converter-dialog" role="dialog" aria-modal="true" aria-labelledby="converterTitle">
       <button class="converter-close" id="closeConverter" aria-label="Close converter">×</button>
       <div class="converter-heading">
-        <span class="tool-icon icon-blue"><b>PDF</b><i>→</i><strong>W</strong></span>
-        <div><div class="section-kicker">WORKSPACE CONVERTER</div><h2 id="converterTitle">PDF to Word</h2><p>Convert your PDF into an editable DOCX document.</p></div>
+        <span class="tool-icon icon-blue" id="converterToolIcon"><svg aria-hidden="true"><use href="#i-pdf-word"></use></svg></span>
+        <div><div class="section-kicker">WORKSPACE TOOL</div><h2 id="converterTitle">PDF to Word</h2><p>Convert your PDF into an editable DOCX document.</p></div>
       </div>
       <div class="upload-zone" id="uploadZone" tabindex="0" role="button" aria-label="Choose a PDF file or drop it here">
         <div class="upload-symbol">↑</div>
