@@ -4,7 +4,7 @@ A browser-based PDF toolbox. Document files are processed locally in the visitor
 
 ## Tools currently implemented
 
-- PDF to Word: extracts selectable PDF text into an editable DOCX.
+- PDF to Word: defaults to visual-fidelity mode, rendering each PDF page as a high-resolution image in a matching-size Word section. This preserves the appearance of fonts, line breaks, tables, diagrams, and images. The page image is not directly editable as Word text. An optional basic editable-text mode extracts selectable text but may change layout.
 - Word to PDF: converts DOCX content to PDF in the browser.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
@@ -26,7 +26,7 @@ No backend is needed for the tools above. The old Render service configuration a
 
 ## Important limitations
 
-- PDF-to-Word currently extracts text; it does not fully recreate complex layouts, tables, embedded images, or exact typography.
+- Visual-fidelity PDF-to-Word preserves appearance by embedding each PDF page as a high-resolution page image in DOCX. Text in this mode is not directly editable. The optional editable-text mode does not fully reconstruct complex layouts, tables, embedded images, or exact typography.
 - Word-to-PDF fidelity depends on what Mammoth can interpret from DOCX and browser HTML rendering.
 - OCR is English-only in this first version and may misread low-quality scans.
 - Compression rasterizes text and may not reduce PDFs that are already compact.
