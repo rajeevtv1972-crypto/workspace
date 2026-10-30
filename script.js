@@ -54,6 +54,8 @@ const conversionStatus = document.getElementById("conversionStatus");
 const progressBar = document.getElementById("progressBar");
 const toolOptions = document.getElementById("toolOptions");
 const toolTitle = document.getElementById("converterTitle");
+const converterToolIcon = document.getElementById("converterToolIcon");
+const TOOL_ICON_IDS = {"PDF to Word":"i-pdf-word","Merge PDF":"i-merge","Split PDF":"i-split","Compress PDF":"i-compress","Word to PDF":"i-word-pdf","PDF to JPG":"i-pdf-image","JPG to PDF":"i-image-pdf","Rotate PDF":"i-rotate","OCR PDF":"i-ocr"};
 const toolDescription = document.querySelector(".converter-heading p");
 const uploadStrong = uploadZone.querySelector("strong");
 const uploadHint = document.getElementById("uploadHint");
@@ -86,6 +88,8 @@ function openTool(toolName) {
   overlay.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
   toolTitle.textContent = toolName;
+  const iconId = TOOL_ICON_IDS[toolName] || "i-brand";
+  converterToolIcon.innerHTML = '<svg aria-hidden="true"><use href="#' + iconId + '"></use></svg>';
   toolDescription.textContent = config.description;
   uploadStrong.textContent = config.multiple ? "Choose files or drop them here" : "Choose a file or drop it here";
   uploadHint.textContent = config.hint;
