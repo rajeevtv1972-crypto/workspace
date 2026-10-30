@@ -53,6 +53,7 @@ const converterError = document.getElementById("converterError");
 const conversionStatus = document.getElementById("conversionStatus");
 let chosenPdf = null;
 let converting = false;
+let conversionComplete = false;
 
 function openConverter() {
   overlay.classList.add("open");
@@ -68,6 +69,7 @@ function closeConverter() {
 }
 function resetConverter() {
   chosenPdf = null;
+  conversionComplete = false;
   pdfInput.value = "";
   selectedFile.hidden = true;
   converterError.hidden = true;
@@ -121,6 +123,7 @@ document.getElementById("removeFile").addEventListener("click", () => resetConve
 uploadZone.addEventListener("drop", event => showFile(event.dataTransfer.files[0]));
 
 convertButton.addEventListener("click", async () => {
+  if (conversionComplete) { resetConverter(); return; }
   if (!chosenPdf || converting) return;
   converting = true;
   converterError.hidden = true;
@@ -152,9 +155,9 @@ convertButton.addEventListener("click", async () => {
     document.getElementById("progressBar").classList.remove("indeterminate");
     document.getElementById("progressBar").style.width = "100%";
     document.getElementById("statusMessage").textContent = "Done! Your Word document has been downloaded.";
+    conversionComplete = true;
     convertButton.textContent = "Convert another PDF";
     convertButton.disabled = false;
-    convertButton.onclick = () => resetConverter();
   } catch (error) {
     converterError.textContent = error.message || "Something went wrong. Please try again.";
     converterError.hidden = false;
