@@ -532,7 +532,7 @@ function detectPdfTableRegions(operatorList, pageHeight) {
       if(
         !current ||
         similarity<0.58 ||
-        entry.line.position-current.entries[current.entries.length-1].line.position>75
+        entry.line.position-current.entries[current.entries.length-1].line.position>48
       ) {
         clusters.push({entries:[entry]});
       } else {
