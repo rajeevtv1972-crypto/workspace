@@ -449,18 +449,18 @@ async function pdfToWordEditable(file) {
             width:frameWidth,
             height:frameHeight,
             anchor:{
-              horizontal:docx.FrameAnchorType.PAGE,
-              vertical:docx.FrameAnchorType.PAGE
+              horizontal:"page",
+              vertical:"page"
             },
-            wrap:docx.FrameWrap.NONE,
-            rule:docx.HeightRule.EXACT,
+            wrap:"none",
+            rule:"exact",
             space:{horizontal:0,vertical:0}
           },
           spacing:{
             before:0,
             after:0,
             line:Math.max(40,Math.round(item.font.size*20*1.3)),
-            lineRule:docx.LineRuleType.EXACT
+            lineRule:"exact"
           },
           wordWrap:false,
           children:[textRun]
@@ -477,18 +477,18 @@ async function pdfToWordEditable(file) {
         },
         floating:{
           horizontalPosition:{
-            relative:docx.HorizontalPositionRelativeFrom.PAGE,
+            relative:"page",
             offset:0
           },
           verticalPosition:{
-            relative:docx.VerticalPositionRelativeFrom.PAGE,
+            relative:"page",
             offset:0
           },
           behindDocument:true,
           allowOverlap:true,
           wrap:{
-            type:docx.TextWrappingType.NONE,
-            side:docx.TextWrappingSide.BOTH_SIDES
+            type:0,
+            side:"bothSides"
           },
           zIndex:0
         },
