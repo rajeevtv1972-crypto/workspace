@@ -4,7 +4,7 @@ A browser-based PDF toolbox. Selected files are processed locally in the visitor
 
 ## Tools
 
-- PDF to Word: rebuilds PDF page artwork as a high-resolution background layer, then places extracted text back as separately editable, positioned Word text frames. This preserves logos, images, vector rules, tables, page graphics and page geometry while keeping extracted text editable. Font names/weights and run sizes are recovered where PDF.js exposes them; glyph colours are sampled from the rendered page.
+- PDF to Word: recreates selectable PDF text as editable Word text frames and detects ruled table grids from PDF vector paths. Detected grids are rebuilt as native Word tables with editable rows/cells and text, while their original gridlines are removed from the background artwork. Non-text artwork such as logos may remain as images. Font names/weights and run sizes are recovered where PDF.js exposes them; glyph colours are sampled from the rendered page.
 - Word to PDF: converts DOCX to PDF with LibreOffice compiled to WebAssembly, running in a browser worker. This uses an office document layout engine rather than HTML reconstruction, so page geometry, fonts, floating objects, images, tables, headers/footers and section breaks are handled much more faithfully. The first use downloads the roughly 240 MB engine from a CORS-enabled static runtime host; the browser caches it for later conversions. The DOCX file itself is processed locally and is not uploaded. Older binary .doc files are not supported.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
@@ -18,7 +18,7 @@ A browser-based PDF toolbox. Selected files are processed locally in the visitor
 
 The original PDF is used as a page artwork layer. Text boxes are cleared from that layer and recreated as positioned, editable Word text frames. This retains non-text items such as logos, signatures/lines, table borders and other drawings.
 
-The text remains editable, but table borders and other graphics are page artwork, not native Word table cells or drawing objects. If text is moved or substantially lengthened, the preserved artwork will not automatically reflow. Exact font reproduction depends on the original fonts being available in the PDF and in the Word viewer. Scanned text that is only part of an image is not editable unless OCR is performed first.
+The text remains editable. Detected ruled grids are native Word tables, so users can select cells, edit values, add/remove rows and columns, and change table formatting in Word. Table detection relies on visible vector rules; borderless tables and scanned/image-only tables may not be detected automatically and should be checked after conversion. Non-text artwork (for example a logo) may remain an image. Exact font reproduction depends on the original fonts being available in the PDF and in the Word viewer. Scanned text that is only part of an image is not editable unless OCR is performed first.
 
 ## Browser libraries and Word-to-PDF runtime
 
