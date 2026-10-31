@@ -22,7 +22,7 @@ The text remains editable, but this is not a fully semantic reconstruction: tabl
 
 ## Browser libraries
 
-The static page loads PDF.js, docx.js, pdf-lib, JSZip, Mammoth, html2pdf.js and Tesseract.js from versioned public CDNs. These libraries are downloaded by the browser; the selected document itself is processed on-device.
+The static page loads PDF.js, docx.js, pdf-lib, JSZip, html2pdf.js and Tesseract.js from versioned public CDNs. Word-to-PDF loads docx-preview on demand as an ESM module. These libraries are downloaded by the browser; the selected document itself is processed on-device.
 
 ## Deployment
 
