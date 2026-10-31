@@ -888,7 +888,7 @@ async function pdfToWordEditable(file) {
         }));
       }
 
-      totalTextItems += background.built.items.length;
+      totalTextItems += (content.items || []).filter(item => item && typeof item.str === "string" && item.str.trim()).length;
       const pageImage = new docx.ImageRun({
         type:"png",
         data:background.bytes,
