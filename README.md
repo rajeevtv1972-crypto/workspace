@@ -1,11 +1,11 @@
 # Workspace PDF
 
-A browser-based PDF toolbox. Document files are processed locally in the visitor's browser; the selected document is not uploaded to a Workspace conversion server.
+A browser-based PDF toolbox. Selected files are processed locally in the visitor's browser; the conversion code does not upload documents to a Workspace conversion server.
 
 ## Tools
 
-- PDF to Word: creates an editable DOCX with recovered font sizes, original font names where PDF.js exposes them, bold/italic style inference, line breaks, approximate line positioning, and Word highlight/underline/strike formatting for detected PDF markup annotations.
-- Word to PDF: converts DOCX content to PDF in the browser, preserving semantic headings, lists, basic tables, bold/italic text, links, line breaks, and embedded images where supported. Older .doc files are not supported; use .docx.
+- PDF to Word: rebuilds the PDF page artwork as a high-resolution background layer, then places extracted text back as separately editable, absolutely positioned Word text frames. This preserves logos, images, vector rules, tables, page graphics and page geometry while keeping extracted text editable. Font names/weights and run sizes are recovered where PDF.js exposes them; glyph colors are sampled from the rendered page.
+- Word to PDF: converts DOCX content to PDF in the browser, preserving semantic headings, lists, basic tables, bold/italic text, links, line breaks and embedded images where Mammoth supports them.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
 - Compress PDF: re-renders pages as optimized JPEG images. This can reduce size for image-heavy PDFs, but text in the compressed output is no longer selectable. If the result would be larger, the tool leaves the original untouched and reports that.
@@ -14,21 +14,21 @@ A browser-based PDF toolbox. Document files are processed locally in the visitor
 - Rotate PDF: rotates all pages by 90, 180, or 270 degrees.
 - OCR PDF: recognizes English text on scanned pages and adds an invisible searchable text layer over page images.
 
+## PDF-to-Word layout model and limitations
+
+The original PDF is used as a page artwork layer. Text boxes are cleared from that layer and recreated as positioned, editable Word text frames. This retains non-text items such as logos, signatures/lines, table borders and other drawings that text extraction alone cannot reproduce.
+
+The text remains editable, but this is not a fully semantic reconstruction: table borders and vector artwork are preserved as page graphics, not native Word table cells or drawing objects. Editing text is supported; changing the structure of a table requires rebuilding that table in Word. If text is moved or substantially lengthened, the preserved page artwork will not automatically reflow. Exact font reproduction depends on the font being available in the PDF and on the viewer's installed fonts. Scanned text that is only part of an image is not editable unless OCR is performed first.
+
 ## Browser libraries
 
-The static page loads PDF.js, docx.js, pdf-lib, JSZip, Mammoth, html2pdf.js, and Tesseract.js from public CDNs. These libraries are downloaded by the browser; the selected document itself is processed on-device.
+The static page loads PDF.js, docx.js, pdf-lib, JSZip, Mammoth, html2pdf.js and Tesseract.js from versioned public CDNs. These libraries are downloaded by the browser; the selected document itself is processed on-device.
 
 ## Deployment
 
 Deploy the repository root as a static site (no build command; output directory `.`) on Cloudflare Pages.
 
 No backend is required for these browser tools. The old Render service configuration and backend folder are retained in the repository for reference but are not used by the frontend.
-
-## PDF-to-Word fidelity notes
-
-The single PDF-to-Word action now always creates editable text; there is no image-only mode selector. The converter retains extracted characters (including brackets and punctuation), text run sizes, original font names where available, line grouping, and detected PDF highlight/underline/strike annotations.
-
-PDFs are a fixed-position drawing format, whereas Word reflows text. Some PDF fonts are subsetted or embedded and cannot be recreated as editable fonts in DOCX without font files and licensing. Exact colors, custom typography, tables, positioned images, columns, and pixel-identical page layout may therefore still differ. This is a best-effort editable conversion rather than a guaranteed exact replica. Scanned/image-only PDFs need OCR before text can be reconstructed.
 
 ## Other limitations
 
