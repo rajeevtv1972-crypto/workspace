@@ -200,245 +200,305 @@ async function loadPdfJs(file) {
   if (!window.pdfjsLib) throw new Error("The PDF reader could not load. Check your internet connection and refresh.");
   return await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
 }
-function getPdfTextStyle(item, styles, resolvedFonts) {
-  const fontMeta = resolvedFonts?.[item.fontName] || {};
-  const rawName = String(fontMeta.name || item.fontName || "");
-  const style = styles?.[item.fontName] || {};
-  const familyValue = String(style.fontFamily || "").toLowerCase();
+function getResolvedPdfFonts(page, content) {
+  const resolved = {};
+  try {
+    for (const key of Object.keys(content.styles || {})) {
+      try {
+        const font = page.commonObjs.get(key);
+        resolved[key] = {
+          name: font?.name || key,
+          isBold: font?.isBold === true,
+          isItalic: font?.isItalic === true
+        };
+      } catch (_) {
+        resolved[key] = { name: key, isBold: false, isItalic: false };
+      }
+    }
+  } catch (_) {}
+  return resolved;
+}
+
+function inferPdfFont(item, style, fontMeta) {
+  const name = String(fontMeta?.name || item.fontName || "");
+  const family = String(style?.fontFamily || "").toLowerCase();
   let font = "Arial";
-  if (familyValue.includes("serif") && !familyValue.includes("sans") || /times|cambria|georgia/i.test(rawName)) font = "Times New Roman";
-  else if (familyValue.includes("mono") || /courier|consolas|monaco/i.test(rawName)) font = "Courier New";
-  else if (familyValue && !familyValue.includes("sans")) {
-    const candidate = style.fontFamily.replace(/[^a-z0-9 ._-]/gi, "").trim();
+  if (/times|cambria|georgia/i.test(name) || (family.includes("serif") && !family.includes("sans"))) {
+    font = "Times New Roman";
+  } else if (/courier|consolas|monaco/i.test(name) || family.includes("mono")) {
+    font = "Courier New";
+  } else if (/symbol/i.test(name)) {
+    font = "Symbol";
+  } else if (family && !family.includes("sans")) {
+    const candidate = family.replace(/[^a-z0-9 ._-]/gi, "").trim();
     if (candidate && candidate.length <= 48) font = candidate;
   }
-  const isBold = fontMeta.isBold === true || /bold|black|heavy|semibold|demi|bd\\b/i.test(rawName);
-  const isItalic = fontMeta.isItalic === true || /italic|oblique|slant|it\\b/i.test(rawName);
+
+  const bold = fontMeta?.isBold === true || /bold|black|heavy|semibold|demi|bd\b/i.test(name);
+  const italics = fontMeta?.isItalic === true || /italic|oblique|slant|it\b/i.test(name);
   const matrix = item.transform || [0,0,0,0,0,0];
-  const fontSize = Math.hypot(matrix[0] || 0, matrix[1] || 0) || Math.abs(matrix[3] || 0) || item.height || 11;
-  return {
-    font,
-    size: Math.max(6, Math.min(72, fontSize)),
-    bold: isBold,
-    italics: isItalic,
-    underline: false,
-    strike: false,
-    highlight: undefined
-  };
+  const size = Math.hypot(matrix[0] || 0, matrix[1] || 0) || Math.abs(matrix[3] || 0) || item.height || 10;
+  return { font, bold, italics, size: Math.max(4, Math.min(72, size)) };
 }
 
-function transformPdfPointToPage(x, y, view) {
-  const [xMin, yMin, xMax, yMax] = view;
-  return { x: x - xMin, y: yMax - y };
+function medianChannel(values) {
+  if (!values.length) return 255;
+  values.sort((a,b)=>a-b);
+  return values[Math.floor(values.length/2)];
 }
 
-function getMarkupAnnotationBoxes(annotations, view) {
-  const boxes = [];
-  for (const annotation of annotations || []) {
-    const subtype = String(annotation.subtype || "");
-    if (!["Highlight", "Underline", "StrikeOut", "Squiggly"].includes(subtype)) continue;
-    const points = annotation.quadPoints || [];
-    const rgb = annotation.color ? Array.from(annotation.color) : [255, 255, 0];
-    const hex = rgb.map(value => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0")).join("").toUpperCase();
-    const colorName = closestWordHighlight(rgb);
-    for (let i = 0; i + 7 < points.length; i += 8) {
-      const coords = [];
-      for (let p = 0; p < 8; p += 2) coords.push(transformPdfPointToPage(points[i+p], points[i+p+1], view));
-      boxes.push({
-        subtype,
-        left: Math.min(...coords.map(point => point.x)),
-        right: Math.max(...coords.map(point => point.x)),
-        top: Math.min(...coords.map(point => point.y)),
-        bottom: Math.max(...coords.map(point => point.y)),
-        colorName,
-        colorHex: hex
-      });
-    }
-  }
-  return boxes;
+function sampleCanvasPixel(data, width, height, x, y) {
+  x = Math.max(0,Math.min(width-1,Math.round(x)));
+  y = Math.max(0,Math.min(height-1,Math.round(y)));
+  const offset = (y*width+x)*4;
+  return [data[offset],data[offset+1],data[offset+2],data[offset+3]];
 }
 
-function closestWordHighlight(rgb) {
-  const palette = [
-    ["yellow",[255,255,0]],["green",[0,255,0]],["cyan",[0,255,255]],
-    ["magenta",[255,0,255]],["blue",[0,0,255]],["red",[255,0,0]],
-    ["darkBlue",[0,0,128]],["darkCyan",[0,128,128]],["darkGreen",[0,128,0]],
-    ["darkMagenta",[128,0,128]],["darkRed",[128,0,0]],["darkYellow",[128,128,0]],
-    ["darkGray",[128,128,128]],["lightGray",[192,192,192]]
+function sampleLocalBackground(imageData, rect) {
+  const {data,width,height} = imageData;
+  const cx = (rect.left+rect.right)/2;
+  const cy = (rect.top+rect.bottom)/2;
+  const gap = Math.max(2,Math.min(6,Math.round(Math.min(rect.width,rect.height)*0.25)));
+  const points = [
+    [cx,rect.top-gap],[cx,rect.bottom+gap],
+    [rect.left-gap,cy],[rect.right+gap,cy],
+    [rect.left-gap,rect.top-gap],[rect.right+gap,rect.top-gap],
+    [rect.left-gap,rect.bottom+gap],[rect.right+gap,rect.bottom+gap]
   ];
-  let best = "yellow", bestDistance = Infinity;
-  for (const [name, color] of palette) {
-    const distance = Math.pow((rgb[0]||0)-color[0],2)+Math.pow((rgb[1]||0)-color[1],2)+Math.pow((rgb[2]||0)-color[2],2);
-    if (distance < bestDistance) { bestDistance = distance; best = name; }
-  }
-  return best;
+  const samples = points.map(([x,y])=>sampleCanvasPixel(data,width,height,x,y)).filter(p=>p[3]>180);
+  return [
+    medianChannel(samples.map(p=>p[0])),
+    medianChannel(samples.map(p=>p[1])),
+    medianChannel(samples.map(p=>p[2]))
+  ];
 }
 
-function rectanglesOverlap(a, b) {
-  const width = Math.max(0, Math.min(a.right,b.right)-Math.max(a.left,b.left));
-  const height = Math.max(0, Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
-  const area = Math.max(1,(a.right-a.left)*(a.bottom-a.top));
-  return (width*height)/area > 0.08;
-}
+function sampleTextInk(imageData, rect, background) {
+  const {data,width,height} = imageData;
+  const values = [[],[],[]];
+  const left = Math.max(0,Math.floor(rect.left));
+  const right = Math.min(width-1,Math.ceil(rect.right));
+  const top = Math.max(0,Math.floor(rect.top));
+  const bottom = Math.min(height-1,Math.ceil(rect.bottom));
+  const step = Math.max(1,Math.floor(Math.min(rect.width,rect.height)/30));
 
-function groupPdfTextIntoLines(items, styles, resolvedFonts, pageHeight, annotations, pageView) {
-  const positioned = items
-    .filter(item => item && typeof item.str === "string" && item.str.length)
-    .map(item => {
-      const matrix = item.transform || [0,0,0,0,0,0];
-      const font = getPdfTextStyle(item, styles, resolvedFonts);
-      const baseline = pageHeight - (matrix[5] - pageView[1]);
-      const left = matrix[4] - pageView[0];
-      const width = Math.max(0, item.width || font.size * item.str.length * 0.48);
-      const top = Math.max(0, baseline - font.size * 0.88);
-      const bottom = Math.min(pageHeight, baseline + font.size * 0.22);
-      const bounds = {left, right:left+width, top, bottom};
-      const applied = annotations.filter(annotation => rectanglesOverlap(bounds, annotation));
-      font.highlight = applied.find(annotation => annotation.subtype === "Highlight")?.colorName;
-      font.underline = applied.some(annotation => annotation.subtype === "Underline" || annotation.subtype === "Squiggly");
-      font.strike = applied.some(annotation => annotation.subtype === "StrikeOut");
-      return {
-        text: item.str,
-        x: left,
-        right: left + width,
-        baseline,
-        top,
-        bottom,
-        font,
-        hasEOL: !!item.hasEOL
-      };
-    })
-    .filter(item => item.text.trim().length);
-
-  positioned.sort((a,b) => a.baseline-b.baseline || a.x-b.x);
-  const lines = [];
-  for (const item of positioned) {
-    let line = lines.find(candidate =>
-      Math.abs(candidate.baseline-item.baseline) <= Math.max(2.2, Math.min(candidate.fontSize,item.font.size)*0.28)
-    );
-    if (!line) {
-      line = {baseline:item.baseline, top:item.top, bottom:item.bottom, fontSize:item.font.size, items:[]};
-      lines.push(line);
-    }
-    line.items.push(item);
-    line.top = Math.min(line.top,item.top);
-    line.bottom = Math.max(line.bottom,item.bottom);
-    line.fontSize = Math.max(line.fontSize,item.font.size);
-    line.baseline = (line.baseline*(line.items.length-1)+item.baseline)/line.items.length;
-  }
-  lines.sort((a,b)=>a.top-b.top);
-  return lines;
-}
-
-function buildRunsForLine(line, pageWidth) {
-  const ordered = [...line.items].sort((a,b)=>a.x-b.x);
-  const columns = [];
-  let current = [];
-  let priorRight = null;
-  for (const item of ordered) {
-    if (current.length && priorRight !== null && item.x-priorRight > pageWidth*0.16) {
-      columns.push(current);
-      current = [];
-    }
-    current.push(item);
-    priorRight = Math.max(priorRight ?? item.right,item.right);
-  }
-  if (current.length) columns.push(current);
-
-  return columns.map(column => {
-    const runs = [];
-    let priorRight = null;
-    for (const item of column) {
-      const gap = priorRight === null ? 0 : item.x-priorRight;
-      const textStartsWithSpace = /^\s/.test(item.text);
-      const lastRun = runs[runs.length-1];
-      if (lastRun && gap > Math.max(1.4,item.font.size*0.16) && !textStartsWithSpace && !/\s$/.test(lastRun.text)) {
-        runs.push(new docx.TextRun({text:" ",font:"Arial",size:Math.round(item.font.size*2)}));
+  for (let y=top;y<=bottom;y+=step) {
+    for (let x=left;x<=right;x+=step) {
+      const pixel = sampleCanvasPixel(data,width,height,x,y);
+      const contrast = Math.max(
+        Math.abs(pixel[0]-background[0]),
+        Math.abs(pixel[1]-background[1]),
+        Math.abs(pixel[2]-background[2])
+      );
+      if (contrast > 75 && pixel[3] > 180) {
+        values[0].push(pixel[0]);
+        values[1].push(pixel[1]);
+        values[2].push(pixel[2]);
       }
-      const options = {
-        text:item.text,
-        font:item.font.font,
-        size:Math.round(item.font.size*2),
-        bold:item.font.bold,
-        italics:item.font.italics,
-        underline:item.font.underline ? {type:"single"} : undefined,
-        strike:item.font.strike || undefined,
-        highlight:item.font.highlight
-      };
-      runs.push(new docx.TextRun(options));
-      priorRight = Math.max(priorRight ?? item.right,item.right);
     }
-    return {runs, left:column[0]?.x || 0};
+  }
+
+  if (!values[0].length) return "111111";
+  return values.map(channel=>medianChannel(channel).toString(16).padStart(2,"0")).join("").toUpperCase();
+}
+
+function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale, imageData, context) {
+  const output = [];
+  const {width:canvasWidth,height:canvasHeight} = context.canvas;
+  let maskedCount = 0;
+
+  for (const item of content.items || []) {
+    if (!item || typeof item.str !== "string" || !item.str.trim()) continue;
+    const matrix = item.transform || [0,0,0,0,0,0];
+    const style = content.styles?.[item.fontName] || {};
+    const font = inferPdfFont(item,style,resolvedFonts[item.fontName]);
+    const baselineX = matrix[4] || 0;
+    const baselineY = pageHeight - (matrix[5] || 0);
+    const ascent = Math.max(0.55,Math.min(1.1,Math.abs(style.ascent ?? 0.82)));
+    const descent = Math.max(0.08,Math.min(0.45,Math.abs(style.descent ?? 0.22)));
+    const textHeight = Math.max(item.height || 0,font.size*(ascent+descent));
+    const textWidth = Math.max(item.width || 0,font.size*item.str.length*0.28);
+
+    // PDF coordinates are converted into page-relative top-left points.
+    const box = {
+      left: Math.max(0,baselineX),
+      top: Math.max(0,baselineY-font.size*ascent),
+      right: Math.min(canvasWidth/renderScale,baselineX+textWidth),
+      bottom: Math.min(canvasHeight/renderScale,baselineY+font.size*descent)
+    };
+    box.width = Math.max(1,box.right-box.left);
+    box.height = Math.max(1,box.bottom-box.top);
+
+    const canvasBox = {
+      left: box.left*renderScale-0.55,
+      top: box.top*renderScale-0.5,
+      right: box.right*renderScale+0.55,
+      bottom: box.bottom*renderScale+0.5
+    };
+    canvasBox.width = canvasBox.right-canvasBox.left;
+    canvasBox.height = canvasBox.bottom-canvasBox.top;
+
+    // Sample background and glyph color before any masking takes place.
+    const background = sampleLocalBackground(imageData,canvasBox);
+    const ink = sampleTextInk(imageData,canvasBox,background);
+
+    // Remove only the original glyph area. Page lines, table borders, logos,
+    // stamps and other non-text artwork remain in the rendered page layer.
+    context.fillStyle = "rgb("+background.join(",")+")";
+    context.fillRect(
+      Math.max(0,canvasBox.left),
+      Math.max(0,canvasBox.top),
+      Math.min(canvasWidth,canvasBox.right)-Math.max(0,canvasBox.left),
+      Math.min(canvasHeight,canvasBox.bottom)-Math.max(0,canvasBox.top)
+    );
+    maskedCount++;
+
+    output.push({
+      text:item.str,
+      x:box.left,
+      y:box.top,
+      width:box.width,
+      height:box.height,
+      font,
+      color:ink
+    });
+  }
+  return {items:output,maskedCount};
+}
+
+async function makePdfPageBackground(page, content, pageHeight, renderScale) {
+  const viewport = page.getViewport({scale:renderScale});
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  const context = canvas.getContext("2d",{alpha:false,willReadFrequently:true});
+  if (!context) throw new Error("Your browser could not create a canvas for the PDF page.");
+
+  context.fillStyle = "#FFFFFF";
+  context.fillRect(0,0,canvas.width,canvas.height);
+  await page.render({canvasContext:context,viewport}).promise;
+
+  // Capture the untouched pixels once so background/text-color sampling is
+  // unaffected by rectangles already masked on the canvas.
+  const originalPixels = context.getImageData(0,0,canvas.width,canvas.height);
+  const resolvedFonts = getResolvedPdfFonts(page,content);
+  const built = buildEditableTextItems(
+    content,resolvedFonts,pageHeight,renderScale,originalPixels,context
+  );
+
+  const png = await new Promise((resolve,reject)=>{
+    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("Could not prepare the page artwork image.")),"image/png");
   });
+  const bytes = new Uint8Array(await png.arrayBuffer());
+  const imageWidthPx = (page.getViewport({scale:1}).width*4)/3;
+  const imageHeightPx = (page.getViewport({scale:1}).height*4)/3;
+
+  canvas.width=1;
+  canvas.height=1;
+  return {bytes,built,imageWidthPx,imageHeightPx};
 }
 
 async function pdfToWordEditable(file) {
   if (!window.docx) throw new Error("The Word generator could not load. Refresh the page and try again.");
   const pdf = await loadPdfJs(file);
-  if (pdf.numPages > 50) {
+  if (pdf.numPages > 20) {
     await pdf.destroy();
-    throw new Error("This PDF has more than 50 pages. Please use a smaller document.");
+    throw new Error("This layout-preserving conversion is limited to 20 pages. Split the PDF into smaller files and convert each part.");
   }
 
   const sections = [];
-  let extractedCharacters = 0;
+  let totalTextItems = 0;
   try {
-    for (let pageNo=1; pageNo<=pdf.numPages; pageNo++) {
-      setProgress(5+(pageNo-1)/pdf.numPages*82,"Reading formatting on page "+pageNo+" of "+pdf.numPages+"…");
+    for (let pageNo=1;pageNo<=pdf.numPages;pageNo++) {
+      setProgress(4+(pageNo-1)/pdf.numPages*85,"Rebuilding page "+pageNo+" of "+pdf.numPages+"…");
       const page = await pdf.getPage(pageNo);
-      const pageView = page.view;
-      const pageWidth = pageView[2]-pageView[0];
-      const pageHeight = pageView[3]-pageView[1];
+      const viewport = page.getViewport({scale:1});
+      const pageWidth = viewport.width;
+      const pageHeight = viewport.height;
       const content = await page.getTextContent();
-      const resolvedFonts = {};
-      // PDF.js exposes original font names through its common object store
-      // after the page operator list has resolved embedded font resources.
-      try {
-        await page.getOperatorList();
-        for (const fontKey of Object.keys(content.styles || {})) {
-          try {
-            const fontObject = page.commonObjs.get(fontKey);
-            resolvedFonts[fontKey] = {
-              name: fontObject?.name || fontKey,
-              isBold: fontObject?.isBold === true,
-              isItalic: fontObject?.isItalic === true
-            };
-          } catch (_) {
-            resolvedFonts[fontKey] = { name: fontKey };
-          }
+      const renderScale = Math.min(2.5,2500/Math.max(pageWidth,pageHeight));
+      const background = await makePdfPageBackground(page,content,pageHeight,renderScale);
+      const textParagraphs = [];
+
+      for (const item of background.built.items) {
+        const frameWidth = Math.max(24,Math.round((item.width+2.2)*20));
+        const frameHeight = Math.max(90,Math.round(Math.max(item.height*1.9,item.font.size*1.65)*20));
+        const x = Math.max(0,Math.round(item.x*20));
+        const y = Math.max(0,Math.round(item.y*20));
+        const textRun = new docx.TextRun({
+          text:item.text,
+          font:item.font.font,
+          size:Math.max(8,Math.round(item.font.size*2)),
+          bold:item.font.bold,
+          italics:item.font.italics,
+          color:item.color
+        });
+
+        textParagraphs.push(new docx.Paragraph({
+          frame:{
+            type:"absolute",
+            position:{x,y},
+            width:frameWidth,
+            height:frameHeight,
+            anchor:{
+              horizontal:docx.FrameAnchorType.PAGE,
+              vertical:docx.FrameAnchorType.PAGE
+            },
+            wrap:docx.FrameWrap.NONE,
+            rule:docx.HeightRule.EXACT,
+            space:{horizontal:0,vertical:0}
+          },
+          spacing:{
+            before:0,
+            after:0,
+            line:Math.max(40,Math.round(item.font.size*20*1.3)),
+            lineRule:docx.LineRuleType.EXACT
+          },
+          wordWrap:false,
+          children:[textRun]
+        }));
+      }
+
+      totalTextItems += background.built.items.length;
+      const pageImage = new docx.ImageRun({
+        type:"png",
+        data:background.bytes,
+        transformation:{
+          width:background.imageWidthPx,
+          height:background.imageHeightPx
+        },
+        floating:{
+          horizontalPosition:{
+            relative:docx.HorizontalPositionRelativeFrom.PAGE,
+            offset:0
+          },
+          verticalPosition:{
+            relative:docx.VerticalPositionRelativeFrom.PAGE,
+            offset:0
+          },
+          behindDocument:true,
+          allowOverlap:true,
+          wrap:{
+            type:docx.TextWrappingType.NONE,
+            side:docx.TextWrappingSide.BOTH_SIDES
+          },
+          zIndex:0
+        },
+        altText:{
+          title:"Original PDF page "+pageNo+" artwork",
+          description:"Original page graphics, tables, rules and images with editable text areas cleared.",
+          name:"PDF page "+pageNo+" artwork"
         }
-      } catch (_) {
-        // If a PDF uses fonts PDF.js cannot resolve to their original names,
-        // still build an editable document using its fallback font families.
-      }
-      const annotations = await page.getAnnotations({intent:"display"});
-      const annotationBoxes = getMarkupAnnotationBoxes(annotations,pageView);
-      const lines = groupPdfTextIntoLines(content.items,content.styles,resolvedFonts,pageHeight,annotationBoxes,pageView);
-      const paragraphs = [];
-      let priorBottom = 0;
+      });
 
-      for (const line of lines) {
-        const columns = buildRunsForLine(line,pageWidth);
-        for (const column of columns) {
-          if (!column.runs.length) continue;
-          const textLength = line.items.reduce((sum,item)=>sum+item.text.length,0);
-          extractedCharacters += textLength;
-          const before = Math.max(0,line.top-priorBottom);
-          paragraphs.push(new docx.Paragraph({
-            indent:{left:Math.max(0,Math.round(column.left*20))},
-            spacing:{before:Math.round(before*20),after:0},
-            children:column.runs
-          }));
-        }
-        priorBottom = Math.max(priorBottom,line.bottom);
-      }
+      // A floating page image preserves non-text artwork. Each extracted text
+      // span is then reinserted as a separately editable, absolutely positioned
+      // Word text frame at its original PDF coordinates.
+      const pageAnchor = new docx.Paragraph({
+        spacing:{before:0,after:0,line:1,lineRule:docx.LineRuleType.EXACT},
+        children:[pageImage]
+      });
 
-      if (!paragraphs.length) {
-        paragraphs.push(new docx.Paragraph({children:[new docx.TextRun({text:""})]}));
-      }
-
-      // Each PDF page gets a section with the same physical page dimensions.
-      // Paragraph indents and vertical spacing are approximated from PDF coordinates.
       sections.push({
         properties:{
           page:{
@@ -450,23 +510,24 @@ async function pdfToWordEditable(file) {
             margin:{top:0,right:0,bottom:0,left:0,header:0,footer:0}
           }
         },
-        children:paragraphs
+        children:[pageAnchor,...textParagraphs]
       });
+
       page.cleanup();
     }
   } finally {
     await pdf.destroy();
   }
 
-  if (extractedCharacters < 2) {
-    throw new Error("This PDF does not contain selectable text. It may be a scanned document; use OCR PDF first.");
+  if (totalTextItems < 2) {
+    throw new Error("This PDF does not contain enough selectable text to create an editable Word document. It may be a scanned PDF; use OCR first.");
   }
 
-  setProgress(94,"Building an editable Word document with recovered formatting…");
+  setProgress(94,"Packaging preserved page artwork and editable text…");
   const document = new docx.Document({
     creator:"Workspace PDF",
     title:safeBaseName(file.name),
-    description:"Editable text conversion with recovered font sizes, bold/italic styles, line spacing, page sizes and PDF highlight annotations where available.",
+    description:"Layout-aware conversion. Page graphics and tables are preserved as artwork; text is reinserted as individually editable positioned Word text.",
     sections
   });
   return await docx.Packer.toBlob(document);
