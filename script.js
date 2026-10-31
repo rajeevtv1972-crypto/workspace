@@ -62,7 +62,7 @@ const uploadHint = document.getElementById("uploadHint");
 const chooseFileButton = document.getElementById("chooseFile");
 
 const TOOL_CONFIG = {
-  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Choose whether to preserve the PDF appearance or extract editable text.", button: "Convert to Word" },
+  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Convert into editable Word text while retaining font sizes, emphasis, line breaks and detected highlights where possible.", button: "Convert to Word" },
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
@@ -123,10 +123,7 @@ function resetTool() {
 function renderToolOptions() {
   toolOptions.innerHTML = "";
   toolOptions.hidden = true;
-  if (activeTool === "PDF to Word") {
-    toolOptions.innerHTML = '<label class="option-field"><span>Conversion mode</span><select id="wordMode"><option value="visual" selected>Match original PDF appearance</option><option value="editable">Extract editable text (basic)</option></select><small>Visual mode keeps the original fonts, line positions, tables, graphics and page layout as a page image. Text will not be directly editable. Editable mode produces real text but may change the layout.</small></label>';
-    toolOptions.hidden = false;
-  } else if (activeTool === "Split PDF") {
+  if (activeTool === "Split PDF") {
     toolOptions.innerHTML = '<label class="option-field"><span>Pages to extract</span><input id="splitRange" type="text" value="1-" placeholder="Example: 1, 3-5"><small>Use page numbers and ranges, separated by commas. Leave as 1- for all pages.</small></label>';
     toolOptions.hidden = false;
   } else if (activeTool === "Rotate PDF") {
@@ -203,140 +200,254 @@ async function loadPdfJs(file) {
   if (!window.pdfjsLib) throw new Error("The PDF reader could not load. Check your internet connection and refresh.");
   return await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
 }
-function groupPdfTextIntoLines(items) {
-  const lines = new Map();
-  for (const item of items) {
-    if (!item.str || !item.str.trim()) continue;
-    const x = item.transform ? item.transform[4] : 0;
-    const y = item.transform ? item.transform[5] : 0;
-    const fontSize = item.height || (item.transform ? Math.abs(item.transform[3]) : 11) || 11;
-    const key = Math.round(y / 3) * 3;
-    if (!lines.has(key)) lines.set(key, []);
-    lines.get(key).push({ text: item.str, x, fontSize });
+function getPdfTextStyle(item, styles) {
+  const rawName = String(item.fontName || "");
+  const style = styles?.[item.fontName] || {};
+  const familyValue = String(style.fontFamily || "").toLowerCase();
+  let font = "Arial";
+  if (familyValue.includes("serif") && !familyValue.includes("sans")) font = "Times New Roman";
+  else if (familyValue.includes("mono")) font = "Courier New";
+  else if (familyValue && !familyValue.includes("sans")) {
+    const candidate = style.fontFamily.replace(/[^a-z0-9 ._-]/gi, "").trim();
+    if (candidate && candidate.length <= 48) font = candidate;
   }
-  return [...lines.entries()].sort((a,b) => b[0]-a[0]).map(([,parts]) => {
-    parts.sort((a,b) => a.x-b.x);
-    let line = "";
-    let previousEnd = null;
-    for (const part of parts) {
-      const gap = previousEnd === null ? 0 : part.x-previousEnd;
-      if (line && gap > Math.max(2,part.fontSize*0.18) && !line.endsWith(" ")) line += " ";
-      line += part.text;
-      previousEnd = part.x + part.text.length*part.fontSize*0.48;
-    }
-    return line.trim();
-  }).filter(Boolean);
+  const isBold = /bold|black|heavy|semibold|demi|bd\b/i.test(rawName);
+  const isItalic = /italic|oblique|slant|it\b/i.test(rawName);
+  const matrix = item.transform || [0,0,0,0,0,0];
+  const fontSize = Math.hypot(matrix[0] || 0, matrix[1] || 0) || Math.abs(matrix[3] || 0) || item.height || 11;
+  return {
+    font,
+    size: Math.max(6, Math.min(72, fontSize)),
+    bold: isBold,
+    italics: isItalic,
+    underline: false,
+    strike: false,
+    highlight: undefined
+  };
 }
+
+function transformPdfPointToPage(x, y, view) {
+  const [xMin, yMin, xMax, yMax] = view;
+  return { x: x - xMin, y: yMax - y };
+}
+
+function getMarkupAnnotationBoxes(annotations, view) {
+  const boxes = [];
+  for (const annotation of annotations || []) {
+    const subtype = String(annotation.subtype || "");
+    if (!["Highlight", "Underline", "StrikeOut", "Squiggly"].includes(subtype)) continue;
+    const points = annotation.quadPoints || [];
+    const rgb = Array.isArray(annotation.color) ? annotation.color : [255, 255, 0];
+    const hex = rgb.map(value => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0")).join("").toUpperCase();
+    const colorName = closestWordHighlight(rgb);
+    for (let i = 0; i + 7 < points.length; i += 8) {
+      const coords = [];
+      for (let p = 0; p < 8; p += 2) coords.push(transformPdfPointToPage(points[i+p], points[i+p+1], view));
+      boxes.push({
+        subtype,
+        left: Math.min(...coords.map(point => point.x)),
+        right: Math.max(...coords.map(point => point.x)),
+        top: Math.min(...coords.map(point => point.y)),
+        bottom: Math.max(...coords.map(point => point.y)),
+        colorName,
+        colorHex: hex
+      });
+    }
+  }
+  return boxes;
+}
+
+function closestWordHighlight(rgb) {
+  const palette = [
+    ["yellow",[255,255,0]],["brightGreen",[0,255,0]],["turquoise",[0,255,255]],
+    ["pink",[255,0,255]],["blue",[0,0,255]],["red",[255,0,0]],
+    ["darkBlue",[0,0,128]],["darkCyan",[0,128,128]],["darkGreen",[0,128,0]],
+    ["darkMagenta",[128,0,128]],["darkRed",[128,0,0]],["darkYellow",[128,128,0]],
+    ["darkGray",[128,128,128]],["lightGray",[192,192,192]]
+  ];
+  let best = "yellow", bestDistance = Infinity;
+  for (const [name, color] of palette) {
+    const distance = Math.pow((rgb[0]||0)-color[0],2)+Math.pow((rgb[1]||0)-color[1],2)+Math.pow((rgb[2]||0)-color[2],2);
+    if (distance < bestDistance) { bestDistance = distance; best = name; }
+  }
+  return best;
+}
+
+function rectanglesOverlap(a, b) {
+  const width = Math.max(0, Math.min(a.right,b.right)-Math.max(a.left,b.left));
+  const height = Math.max(0, Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+  const area = Math.max(1,(a.right-a.left)*(a.bottom-a.top));
+  return (width*height)/area > 0.08;
+}
+
+function groupPdfTextIntoLines(items, styles, pageHeight, annotations, pageView) {
+  const positioned = items
+    .filter(item => item && typeof item.str === "string" && item.str.length)
+    .map(item => {
+      const matrix = item.transform || [0,0,0,0,0,0];
+      const font = getPdfTextStyle(item, styles);
+      const baseline = pageHeight - matrix[5];
+      const left = matrix[4] - pageView[0];
+      const width = Math.max(0, item.width || font.size * item.str.length * 0.48);
+      const top = Math.max(0, baseline - font.size * 0.88);
+      const bottom = Math.min(pageHeight, baseline + font.size * 0.22);
+      const bounds = {left, right:left+width, top, bottom};
+      const applied = annotations.filter(annotation => rectanglesOverlap(bounds, annotation));
+      font.highlight = applied.find(annotation => annotation.subtype === "Highlight")?.colorName;
+      font.underline = applied.some(annotation => annotation.subtype === "Underline" || annotation.subtype === "Squiggly");
+      font.strike = applied.some(annotation => annotation.subtype === "StrikeOut");
+      return {
+        text: item.str,
+        x: left,
+        right: left + width,
+        baseline,
+        top,
+        bottom,
+        font,
+        hasEOL: !!item.hasEOL
+      };
+    })
+    .filter(item => item.text.trim().length);
+
+  positioned.sort((a,b) => a.baseline-b.baseline || a.x-b.x);
+  const lines = [];
+  for (const item of positioned) {
+    let line = lines.find(candidate =>
+      Math.abs(candidate.baseline-item.baseline) <= Math.max(2.2, Math.min(candidate.fontSize,item.font.size)*0.28)
+    );
+    if (!line) {
+      line = {baseline:item.baseline, top:item.top, bottom:item.bottom, fontSize:item.font.size, items:[]};
+      lines.push(line);
+    }
+    line.items.push(item);
+    line.top = Math.min(line.top,item.top);
+    line.bottom = Math.max(line.bottom,item.bottom);
+    line.fontSize = Math.max(line.fontSize,item.font.size);
+    line.baseline = (line.baseline*(line.items.length-1)+item.baseline)/line.items.length;
+  }
+  lines.sort((a,b)=>a.top-b.top);
+  return lines;
+}
+
+function buildRunsForLine(line, pageWidth) {
+  const ordered = [...line.items].sort((a,b)=>a.x-b.x);
+  const columns = [];
+  let current = [];
+  let priorRight = null;
+  for (const item of ordered) {
+    if (current.length && priorRight !== null && item.x-priorRight > pageWidth*0.16) {
+      columns.push(current);
+      current = [];
+    }
+    current.push(item);
+    priorRight = Math.max(priorRight ?? item.right,item.right);
+  }
+  if (current.length) columns.push(current);
+
+  return columns.map(column => {
+    const runs = [];
+    let priorRight = null;
+    for (const item of column) {
+      const gap = priorRight === null ? 0 : item.x-priorRight;
+      const textStartsWithSpace = /^\s/.test(item.text);
+      const lastRun = runs[runs.length-1];
+      if (lastRun && gap > Math.max(1.4,item.font.size*0.16) && !textStartsWithSpace && !/\s$/.test(lastRun.text)) {
+        runs.push(new docx.TextRun({text:" ",font:"Arial",size:Math.round(item.font.size*2)}));
+      }
+      const options = {
+        text:item.text,
+        font:item.font.font,
+        size:Math.round(item.font.size*2),
+        bold:item.font.bold,
+        italics:item.font.italics,
+        underline:item.font.underline ? {type:"single"} : undefined,
+        strike:item.font.strike || undefined,
+        highlight:item.font.highlight
+      };
+      runs.push(new docx.TextRun(options));
+      priorRight = Math.max(priorRight ?? item.right,item.right);
+    }
+    return {runs, left:column[0]?.x || 0};
+  });
+}
+
 async function pdfToWordEditable(file) {
   if (!window.docx) throw new Error("The Word generator could not load. Refresh the page and try again.");
   const pdf = await loadPdfJs(file);
-  if (pdf.numPages > 50) { await pdf.destroy(); throw new Error("This PDF has more than 50 pages."); }
-  const paragraphs = [];
-  let extracted = 0;
-  for (let pageNo=1; pageNo<=pdf.numPages; pageNo++) {
-    setProgress(8+(pageNo-1)/pdf.numPages*78, "Reading page "+pageNo+" of "+pdf.numPages+" locally…");
-    const page = await pdf.getPage(pageNo);
-    const content = await page.getTextContent();
-    const lines = groupPdfTextIntoLines(content.items);
-    if (pageNo > 1) paragraphs.push(new docx.Paragraph({ text:"", pageBreakBefore:true }));
-    for (const line of lines) {
-      extracted += line.length;
-      paragraphs.push(new docx.Paragraph({ children:[new docx.TextRun({text:line,size:22})], spacing:{after:90,line:276} }));
-    }
-    if (!lines.length) paragraphs.push(new docx.Paragraph({ children:[new docx.TextRun({text:"[No selectable text on this page. It may be a scanned image; use OCR PDF for scanned documents.]",italics:true,color:"777777"})] }));
-    page.cleanup();
-  }
-  await pdf.destroy();
-  if (extracted < 5) throw new Error("This PDF has no selectable text. It may be scanned or image-only. Use OCR PDF instead.");
-  setProgress(92,"Creating your editable Word document…");
-  const doc = new docx.Document({ creator:"Workspace PDF", title:safeBaseName(file.name), sections:[{properties:{},children:paragraphs}] });
-  return await docx.Packer.toBlob(doc);
-}
-async function pdfToWordVisual(file) {
-  if (!window.docx) throw new Error("The Word document library could not load. Refresh the page and try again.");
-  const pdf = await loadPdfJs(file);
-  if (pdf.numPages > 20) {
+  if (pdf.numPages > 50) {
     await pdf.destroy();
-    throw new Error("Visual-fidelity conversion is limited to 20 pages. Split the PDF into smaller files and convert each part.");
+    throw new Error("This PDF has more than 50 pages. Please use a smaller document.");
   }
 
   const sections = [];
+  let extractedCharacters = 0;
   try {
-    for (let pageNo = 1; pageNo <= pdf.numPages; pageNo++) {
-      setProgress(5 + ((pageNo - 1) / pdf.numPages) * 82, "Preserving original page " + pageNo + " of " + pdf.numPages + "…");
+    for (let pageNo=1; pageNo<=pdf.numPages; pageNo++) {
+      setProgress(5+(pageNo-1)/pdf.numPages*82,"Reading formatting on page "+pageNo+" of "+pdf.numPages+"…");
       const page = await pdf.getPage(pageNo);
-      const baseViewport = page.getViewport({ scale: 1 });
-      const renderScale = 2.2;
-      const viewport = page.getViewport({ scale: renderScale });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(viewport.width);
-      canvas.height = Math.ceil(viewport.height);
-      const context = canvas.getContext("2d", { alpha: false });
-      if (!context) throw new Error("Your browser could not create an image canvas for this page.");
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: context, viewport }).promise;
+      const pageView = page.view;
+      const pageWidth = pageView[2]-pageView[0];
+      const pageHeight = pageView[3]-pageView[1];
+      const content = await page.getTextContent();
+      const annotations = await page.getAnnotations({intent:"display"});
+      const annotationBoxes = getMarkupAnnotationBoxes(annotations,pageView);
+      const lines = groupPdfTextIntoLines(content.items,content.styles,pageHeight,annotationBoxes,pageView);
+      const paragraphs = [];
+      let priorBottom = 0;
 
-      const pngBlob = await new Promise((resolve, reject) => {
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Could not render page " + pageNo + " as an image.")), "image/png");
-      });
-      const imageData = new Uint8Array(await pngBlob.arrayBuffer());
-
-      // PDF.js viewport dimensions are CSS pixels at 96 DPI. DOCX image
-      // transformations use the same pixel-to-physical-size convention.
-      const pageWidthTwips = Math.round(baseViewport.width * 15);
-      const pageHeightTwips = Math.round(baseViewport.height * 15);
-      const image = new docx.ImageRun({
-        type: "png",
-        data: imageData,
-        transformation: {
-          width: baseViewport.width,
-          height: baseViewport.height
-        },
-        altText: {
-          title: "Original PDF page " + pageNo,
-          description: "A visual copy of page " + pageNo + " from " + file.name,
-          name: "PDF page " + pageNo
+      for (const line of lines) {
+        const columns = buildRunsForLine(line,pageWidth);
+        for (const column of columns) {
+          if (!column.runs.length) continue;
+          const textLength = line.items.reduce((sum,item)=>sum+item.text.length,0);
+          extractedCharacters += textLength;
+          const before = Math.max(0,line.top-priorBottom);
+          paragraphs.push(new docx.Paragraph({
+            indent:{left:Math.max(0,Math.round(column.left*20))},
+            spacing:{before:Math.round(before*20),after:0},
+            children:column.runs
+          }));
         }
-      });
-      const paragraph = new docx.Paragraph({
-        alignment: docx.AlignmentType ? docx.AlignmentType.CENTER : "center",
-        spacing: { before: 0, after: 0 },
-        children: [image]
-      });
+        priorBottom = Math.max(priorBottom,line.bottom);
+      }
 
+      if (!paragraphs.length) {
+        paragraphs.push(new docx.Paragraph({children:[new docx.TextRun({text:""})]}));
+      }
+
+      // Each PDF page gets a section with the same physical page dimensions.
+      // Paragraph indents and vertical spacing are approximated from PDF coordinates.
       sections.push({
-        properties: {
-          page: {
-            size: { width: pageWidthTwips, height: pageHeightTwips, orientation: baseViewport.width > baseViewport.height ? "landscape" : "portrait" },
-            margin: { top: 0, right: 0, bottom: 0, left: 0, header: 0, footer: 0 }
+        properties:{
+          page:{
+            size:{
+              width:Math.round(pageWidth*20),
+              height:Math.round(pageHeight*20),
+              orientation:pageWidth>pageHeight?"landscape":"portrait"
+            },
+            margin:{top:0,right:0,bottom:0,left:0,header:0,footer:0}
           }
         },
-        children: [paragraph]
+        children:paragraphs
       });
-
-      canvas.width = 1;
-      canvas.height = 1;
       page.cleanup();
     }
   } finally {
     await pdf.destroy();
   }
 
-  setProgress(92, "Building a Word file with the original page appearance…");
+  if (extractedCharacters < 2) {
+    throw new Error("This PDF does not contain selectable text. It may be a scanned document; use OCR PDF first.");
+  }
+
+  setProgress(94,"Building an editable Word document with recovered formatting…");
   const document = new docx.Document({
-    creator: "Workspace PDF",
-    title: safeBaseName(file.name),
-    description: "Visual-fidelity PDF conversion. Each Word page contains a high-resolution image of the original PDF page.",
+    creator:"Workspace PDF",
+    title:safeBaseName(file.name),
+    description:"Editable text conversion with recovered font sizes, bold/italic styles, line spacing, page sizes and PDF highlight annotations where available.",
     sections
   });
   return await docx.Packer.toBlob(document);
-}
-
-async function pdfToWord(file) {
-  const mode = document.getElementById("wordMode")?.value || "visual";
-  if (mode === "editable") return await pdfToWordEditable(file);
-  return await pdfToWordVisual(file);
 }
 
 async function mergePDF(files) {
@@ -529,7 +640,7 @@ async function ocrPDF(file) {
 async function runActiveTool() {
   const file=chosenFiles[0];
   switch(activeTool){
-    case "PDF to Word": return {blob:await pdfToWord(file),name:safeBaseName(file.name)+"-converted.docx"};
+    case "PDF to Word": return {blob:await pdfToWordEditable(file),name:safeBaseName(file.name)+"-editable.docx"};
     case "Merge PDF": return {blob:await mergePDF(chosenFiles),name:"merged-document.pdf"};
     case "Split PDF": return {blob:await splitPDF(file),name:safeBaseName(file.name)+"-selected-pages.pdf"};
     case "Compress PDF": return {blob:await compressPDF(file),name:safeBaseName(file.name)+"-compressed.pdf"};
