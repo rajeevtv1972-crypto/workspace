@@ -212,8 +212,8 @@ function getPdfTextStyle(item, styles, resolvedFonts) {
     const candidate = style.fontFamily.replace(/[^a-z0-9 ._-]/gi, "").trim();
     if (candidate && candidate.length <= 48) font = candidate;
   }
-  const isBold = /bold|black|heavy|semibold|demi|bd\b/i.test(rawName);
-  const isItalic = /italic|oblique|slant|it\b/i.test(rawName);
+  const isBold = fontMeta.isBold === true || /bold|black|heavy|semibold|demi|bd\\b/i.test(rawName);
+  const isItalic = fontMeta.isItalic === true || /italic|oblique|slant|it\\b/i.test(rawName);
   const matrix = item.transform || [0,0,0,0,0,0];
   const fontSize = Math.hypot(matrix[0] || 0, matrix[1] || 0) || Math.abs(matrix[3] || 0) || item.height || 11;
   return {
