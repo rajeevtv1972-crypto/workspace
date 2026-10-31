@@ -691,8 +691,12 @@ async function getLibreOfficeEngine() {
         browserWorkerJs: officeWorkerBlobUrl,
         verbose: false,
         onProgress: info => {
-          const percent = Math.max(5, Math.min(94, Number(info?.percent) || 5));
-          setProgress(percent, info?.message || "Preparing LibreOffice…");
+          const percent = Math.max(0, Math.min(100, Number(info?.percent) || 0));
+          if (officeEngine) {
+            setProgress(94 + percent * 0.05, info?.message || "Converting with LibreOffice…");
+          } else {
+            setProgress(5 + percent * 0.82, info?.message || "Downloading and preparing LibreOffice…");
+          }
         },
         onError: error => console.error("Workspace LibreOffice worker:", error)
       });
