@@ -22,7 +22,7 @@ The text remains editable, but table borders and other graphics are page artwork
 
 ## Browser libraries and Word-to-PDF runtime
 
-The static page loads PDF.js, docx.js, pdf-lib, JSZip and Tesseract.js from versioned public CDNs. Word-to-PDF dynamically imports the browser API for `@matbee/libreoffice-converter` and loads its worker bundle from a versioned CDN. The small Emscripten loader and pthread worker are hosted same-origin in `/wasm/`; the larger WebAssembly and filesystem binaries are fetched from the public CORS-enabled runtime host.
+The static page loads PDF.js, docx.js, pdf-lib, JSZip and Tesseract.js from versioned public CDNs. Word-to-PDF pins `@matbee/libreoffice-converter` v2.7.2 and its worker bundle from jsDelivr/esm.sh. The small Emscripten loader and pthread worker are hosted same-origin in `/wasm/`; the larger WebAssembly and filesystem binaries are fetched from the matching v2.7.2 GitHub Pages runtime at `https://matbeedotcom.github.io/libreoffice-document-converter/wasm/`.
 
 The document being converted remains in the browser. The LibreOffice engine is cached by the browser after its first download.
 
