@@ -652,63 +652,24 @@ async function jpgToPDF(files) {
   }
   return new Blob([await output.save({useObjectStreams:true})],{type:"application/pdf"});
 }
-function sanitizeMammothHtml(html) {
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  parsed.querySelectorAll("script,style,iframe,object,embed,form,video,audio,link,meta,svg,math").forEach(el => el.remove());
+let docxPreviewModulePromise;
 
-  const safeStyleProperties = new Set([
-    "color","background-color","font-family","font-size","font-weight","font-style",
-    "text-align","text-decoration","vertical-align","white-space","line-height",
-    "margin","margin-left","margin-right","margin-top","margin-bottom",
-    "padding","padding-left","padding-right","padding-top","padding-bottom",
-    "width","height","max-width","border","border-collapse","border-width",
-    "border-style","border-color","list-style-type","direction"
-  ]);
-
-  parsed.body.querySelectorAll("*").forEach(element => {
-    [...element.attributes].forEach(attribute => {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value || "";
-
-      if (name.startsWith("on") || name === "srcset" || name === "formaction") {
-        element.removeAttribute(attribute.name);
-        return;
-      }
-      if (name === "src" && element.tagName === "IMG" && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(value)) return;
-      if (name === "href" && element.tagName === "A" && /^(https?:|mailto:|#)/i.test(value)) return;
-      if (name === "style") {
-        const safeRules = value.split(";").map(rule => rule.trim()).filter(Boolean).map(rule => {
-          const colon = rule.indexOf(":");
-          if (colon < 1) return "";
-          const property = rule.slice(0, colon).trim().toLowerCase();
-          const cssValue = rule.slice(colon + 1).trim();
-          if (!safeStyleProperties.has(property) || /url\s*\(|expression\s*\(|javascript:|@import|behavior\s*:/i.test(cssValue)) return "";
-          return property + ":" + cssValue;
-        }).filter(Boolean);
-        if (safeRules.length) element.setAttribute("style", safeRules.join(";"));
-        else element.removeAttribute("style");
-        return;
-      }
-      if (["colspan","rowspan","width","height","align","valign","alt","title","class"].includes(name)) {
-        if (["width","height","colspan","rowspan"].includes(name) && !/^\d{1,5}(px|pt|%)?$/.test(value)) {
-          element.removeAttribute(attribute.name);
+async function loadDocxPreview() {
+  if (!docxPreviewModulePromise) {
+    docxPreviewModulePromise = import("https://esm.sh/docx-preview@0.4.1?bundle")
+      .then(module => {
+        const renderer = module.renderAsync || module.default?.renderAsync;
+        if (typeof renderer !== "function") {
+          throw new Error("The Word document renderer did not expose its browser API.");
         }
-        return;
-      }
-      element.removeAttribute(attribute.name);
-    });
-
-    if (element.tagName === "IMG") {
-      const src = element.getAttribute("src") || "";
-      if (!src.startsWith("data:image/")) element.remove();
-      else {
-        element.removeAttribute("width");
-        element.style.maxWidth = "100%";
-        element.style.height = "auto";
-      }
-    }
-  });
-  return parsed.body.innerHTML;
+        return { renderAsync: renderer };
+      })
+      .catch(error => {
+        docxPreviewModulePromise = null;
+        throw new Error("The Word page renderer could not load. Check your internet connection and refresh the page. " + (error?.message || ""));
+      });
+  }
+  return await docxPreviewModulePromise;
 }
 
 async function waitForDocumentImages(container) {
@@ -719,99 +680,179 @@ async function waitForDocumentImages(container) {
       try { await image.decode(); return; } catch (_) {}
     }
     await new Promise(resolve => {
-      const done = () => resolve();
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        resolve();
+      };
       image.addEventListener("load", done, { once: true });
       image.addEventListener("error", done, { once: true });
-      setTimeout(done, 8000);
+      setTimeout(done, 10000);
     });
   }));
   const broken = images.filter(image => !image.naturalWidth);
-  broken.forEach(image => image.remove());
+  if (broken.length) {
+    throw new Error("Some embedded images in this Word document could not be rendered. Please try saving the document again in Microsoft Word.");
+  }
+}
+
+function findRenderedWordPages(container) {
+  const wrapper = container.querySelector(".docx-wrapper");
+  const searchRoot = wrapper || container;
+  let pages = [...searchRoot.children].filter(element =>
+    element.matches?.("section.docx, .docx-page, section[class~='docx']")
+  );
+
+  if (!pages.length) {
+    pages = [...searchRoot.querySelectorAll("section.docx")];
+  }
+  if (!pages.length) {
+    pages = [...searchRoot.querySelectorAll(".docx")].filter(element =>
+      element !== wrapper && element.querySelector("*")
+    );
+  }
+
+  return pages.filter(page => {
+    const rect = page.getBoundingClientRect();
+    return rect.width > 100 && rect.height > 100;
+  });
+}
+
+async function createPdfFromRenderedWordPage(page, pageNumber) {
+  if (!window.html2pdf) {
+    throw new Error("The PDF rendering library did not load. Refresh the page and try again.");
+  }
+
+  const rect = page.getBoundingClientRect();
+  const widthPx = Math.ceil(Math.max(rect.width, page.scrollWidth, page.offsetWidth));
+  const heightPx = Math.ceil(Math.max(rect.height, page.scrollHeight, page.offsetHeight));
+  if (widthPx < 100 || heightPx < 100) {
+    throw new Error("Word page " + pageNumber + " has no measurable page layout.");
+  }
+
+  const scale = Math.min(2, 3200 / Math.max(widthPx, heightPx));
+  const options = {
+    margin: 0,
+    image: { type: "jpeg", quality: 0.98 },
+    html2canvas: {
+      scale,
+      useCORS: false,
+      allowTaint: false,
+      backgroundColor: "#FFFFFF",
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: Math.max(document.documentElement.clientWidth, widthPx),
+      windowHeight: Math.max(document.documentElement.clientHeight, heightPx),
+      width: widthPx,
+      height: heightPx
+    },
+    jsPDF: {
+      unit: "pt",
+      format: [widthPx * 0.75, heightPx * 0.75],
+      orientation: widthPx > heightPx ? "landscape" : "portrait",
+      compress: true
+    },
+    pagebreak: { mode: [] }
+  };
+
+  setProgress(55 + (pageNumber - 1) * 4, "Rendering Word page " + pageNumber + "…");
+
+  // outputPdf() runs the complete html2pdf prerequisite chain
+  // (clone -> canvas -> image -> PDF) before returning a Blob.
+  const blob = await html2pdf().set(options).from(page).outputPdf("blob");
+  if (!(blob instanceof Blob) || blob.size < 500 || blob.type !== "application/pdf") {
+    throw new Error("The PDF renderer produced an empty file for Word page " + pageNumber + ".");
+  }
+
+  return blob;
 }
 
 async function wordToPDF(file) {
-  if (!window.mammoth) throw new Error("The Word reader library did not load. Refresh the page and try again.");
-  if (!window.html2pdf) throw new Error("The PDF generator did not load. Refresh the page and try again.");
-  if (file.size > 25 * 1024 * 1024) throw new Error("Word-to-PDF currently supports DOCX files up to 25 MB.");
+  if (!window.html2pdf) {
+    throw new Error("The PDF generator did not load. Refresh the page and try again.");
+  }
+  if (!window.PDFLib) {
+    throw new Error("The PDF assembly library did not load. Refresh the page and try again.");
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    throw new Error("Word-to-PDF currently supports DOCX files up to 25 MB.");
+  }
 
-  setProgress(10, "Opening your Word document locally…");
-  const arrayBuffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuffer);
+  setProgress(5, "Opening your Word document locally…");
+  const bytes = new Uint8Array(await file.arrayBuffer());
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
     throw new Error("This file is not a valid DOCX document. Please choose a .docx file (not the older .doc format).");
   }
 
-  let result;
+  const preview = await loadDocxPreview();
+  const stage = document.createElement("div");
+  stage.className = "word-pdf-render-stage";
+  stage.setAttribute("aria-hidden", "true");
+
+  const styleContainer = document.createElement("div");
+  const bodyContainer = document.createElement("div");
+  bodyContainer.className = "word-pdf-render-body";
+  stage.append(styleContainer, bodyContainer);
+  document.body.appendChild(stage);
+
   try {
-    result = await mammoth.convertToHtml({ arrayBuffer }, {
-      includeDefaultStyleMap: true,
-      convertImage: mammoth.images.imgElement(image => image.read("base64").then(imageBuffer => ({
-        src: "data:" + image.contentType + ";base64," + imageBuffer
-      })))
+    setProgress(14, "Rebuilding the original Word page layout…");
+    await preview.renderAsync(bytes, bodyContainer, styleContainer, {
+      className: "docx",
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      ignoreFonts: false,
+      breakPages: true,
+      ignoreLastRenderedPageBreak: false,
+      experimental: true,
+      useBase64URL: true,
+      renderChanges: false,
+      renderHeaders: true,
+      renderFooters: true,
+      renderFootnotes: true,
+      renderEndnotes: true,
+      renderComments: false,
+      renderAltChunks: false,
+      debug: false
     });
-  } catch (error) {
-    throw new Error("We couldn't read this Word document. It may be damaged or use unsupported content.");
-  }
 
-  if (!result || !result.value || !result.value.trim()) {
-    throw new Error("No readable content was found in this Word document.");
-  }
+    await waitForDocumentImages(bodyContainer);
+    if (document.fonts?.ready) await document.fonts.ready;
 
-  const container = document.createElement("div");
-  container.className = "word-export-sheet";
-  container.innerHTML = sanitizeMammothHtml(result.value);
-
-  if (!container.textContent.trim() && !container.querySelector("img,table")) {
-    throw new Error("This Word document has no content that can be exported.");
-  }
-
-  // Keep the temporary render surface within the viewport. It sits behind
-  // the converter overlay while html2pdf clones and rasterizes it.
-  container.setAttribute("aria-hidden", "true");
-  document.body.appendChild(container);
-
-  try {
-    await waitForDocumentImages(container);
-    if (document.fonts && document.fonts.ready) await document.fonts.ready;
-
-    setProgress(48, "Preparing the Word pages for PDF…");
-    const options = {
-      margin: [12, 12, 12, 12],
-      image: { type: "jpeg", quality: 0.95 },
-      html2canvas: {
-        scale: 1.45,
-        useCORS: false,
-        allowTaint: false,
-        backgroundColor: "#ffffff",
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: Math.max(document.documentElement.clientWidth, 1000),
-        removeContainer: true
-      },
-      jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
-      pagebreak: { mode: ["css", "legacy"], avoid: ["tr", "img", "pre", "blockquote"] }
-    };
-
-    setProgress(62, "Rendering your Word document…");
-    const worker = html2pdf().set(options).from(container).toPdf();
-    const pdfDocument = await worker.get("pdf");
-    if (!pdfDocument || typeof pdfDocument.output !== "function") {
-      throw new Error("The PDF renderer could not create a PDF document. Please try again.");
+    const pageElements = findRenderedWordPages(bodyContainer);
+    if (!pageElements.length) {
+      throw new Error("The Word renderer could not identify any printable pages in this DOCX file.");
+    }
+    if (pageElements.length > 50) {
+      throw new Error("This document contains more than 50 pages. Please split it into smaller documents.");
     }
 
-    const blob = pdfDocument.output("blob");
-    if (!(blob instanceof Blob) || blob.size < 100 || blob.type !== "application/pdf") {
-      throw new Error("The PDF renderer returned an empty or invalid file. Please try another DOCX document.");
+    setProgress(30, "Preparing " + pageElements.length + " Word page" + (pageElements.length === 1 ? "" : "s") + "…");
+    const { PDFDocument } = PDFLib;
+    const outputPdf = await PDFDocument.create();
+
+    for (let i = 0; i < pageElements.length; i++) {
+      const pageBlob = await createPdfFromRenderedWordPage(pageElements[i], i + 1);
+      const pageBytes = new Uint8Array(await pageBlob.arrayBuffer());
+      const pagePdf = await PDFDocument.load(pageBytes);
+      const copiedPages = await outputPdf.copyPages(pagePdf, pagePdf.getPageIndices());
+      copiedPages.forEach(page => outputPdf.addPage(page));
+      setProgress(55 + ((i + 1) / pageElements.length) * 38, "Assembling PDF page " + (i + 1) + " of " + pageElements.length + "…");
     }
 
-    setProgress(96, "Finishing your PDF download…");
-    return blob;
-  } catch (error) {
-    if (error && error.message) throw error;
-    throw new Error("Word-to-PDF rendering failed in this browser. Try a smaller DOCX file or remove unusually large images.");
+    const finalBytes = await outputPdf.save({ useObjectStreams: true });
+    const finalBlob = new Blob([finalBytes], { type: "application/pdf" });
+    if (finalBlob.size < 1000) {
+      throw new Error("The generated PDF is unexpectedly small. The document may not have rendered correctly.");
+    }
+
+    setProgress(98, "Your PDF is ready to download.");
+    return finalBlob;
   } finally {
-    container.remove();
+    stage.remove();
   }
 }
 
