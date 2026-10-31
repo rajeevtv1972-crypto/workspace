@@ -32,7 +32,12 @@ No backend is required for these browser tools. The old Render service configura
 
 ## Other limitations
 
-- Word-to-PDF fidelity depends on the DOCX renderer's supported WordprocessingML/DrawingML features and browser canvas rendering. The exported PDF is page-image based, so its text is not selectable/searchable.
+- Word-to-PDF uses LibreOffice's Writer layout engine and exports a native PDF, preserving selectable/searchable text. Font substitutions can still change line wrapping when a source font is not included in the engine.
 - OCR is English-only in this first version and may misread low-quality scans.
 - Compression rasterizes text and may not reduce PDFs that are already compact.
 - Large PDFs can use significant browser memory. The tool UI applies per-tool page and file-size limits.
+
+
+## Word-to-PDF isolation headers
+
+Cloudflare Pages must serve the site with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so the browser can use `SharedArrayBuffer` for the LibreOffice WebAssembly worker. These headers are configured in the repository's `_headers` file. External script and font references use CORS mode. The large WebAssembly binaries are fetched from the public CORS-enabled static runtime host; the document being converted stays inside the browser.
