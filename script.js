@@ -200,13 +200,14 @@ async function loadPdfJs(file) {
   if (!window.pdfjsLib) throw new Error("The PDF reader could not load. Check your internet connection and refresh.");
   return await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
 }
-function getPdfTextStyle(item, styles) {
-  const rawName = String(item.fontName || "");
+function getPdfTextStyle(item, styles, resolvedFonts) {
+  const fontMeta = resolvedFonts?.[item.fontName] || {};
+  const rawName = String(fontMeta.name || item.fontName || "");
   const style = styles?.[item.fontName] || {};
   const familyValue = String(style.fontFamily || "").toLowerCase();
   let font = "Arial";
-  if (familyValue.includes("serif") && !familyValue.includes("sans")) font = "Times New Roman";
-  else if (familyValue.includes("mono")) font = "Courier New";
+  if (familyValue.includes("serif") && !familyValue.includes("sans") || /times|cambria|georgia/i.test(rawName)) font = "Times New Roman";
+  else if (familyValue.includes("mono") || /courier|consolas|monaco/i.test(rawName)) font = "Courier New";
   else if (familyValue && !familyValue.includes("sans")) {
     const candidate = style.fontFamily.replace(/[^a-z0-9 ._-]/gi, "").trim();
     if (candidate && candidate.length <= 48) font = candidate;
@@ -237,7 +238,7 @@ function getMarkupAnnotationBoxes(annotations, view) {
     const subtype = String(annotation.subtype || "");
     if (!["Highlight", "Underline", "StrikeOut", "Squiggly"].includes(subtype)) continue;
     const points = annotation.quadPoints || [];
-    const rgb = Array.isArray(annotation.color) ? annotation.color : [255, 255, 0];
+    const rgb = annotation.color ? Array.from(annotation.color) : [255, 255, 0];
     const hex = rgb.map(value => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, "0")).join("").toUpperCase();
     const colorName = closestWordHighlight(rgb);
     for (let i = 0; i + 7 < points.length; i += 8) {
@@ -259,8 +260,8 @@ function getMarkupAnnotationBoxes(annotations, view) {
 
 function closestWordHighlight(rgb) {
   const palette = [
-    ["yellow",[255,255,0]],["brightGreen",[0,255,0]],["turquoise",[0,255,255]],
-    ["pink",[255,0,255]],["blue",[0,0,255]],["red",[255,0,0]],
+    ["yellow",[255,255,0]],["green",[0,255,0]],["cyan",[0,255,255]],
+    ["magenta",[255,0,255]],["blue",[0,0,255]],["red",[255,0,0]],
     ["darkBlue",[0,0,128]],["darkCyan",[0,128,128]],["darkGreen",[0,128,0]],
     ["darkMagenta",[128,0,128]],["darkRed",[128,0,0]],["darkYellow",[128,128,0]],
     ["darkGray",[128,128,128]],["lightGray",[192,192,192]]
@@ -280,12 +281,12 @@ function rectanglesOverlap(a, b) {
   return (width*height)/area > 0.08;
 }
 
-function groupPdfTextIntoLines(items, styles, pageHeight, annotations, pageView) {
+function groupPdfTextIntoLines(items, styles, resolvedFonts, pageHeight, annotations, pageView) {
   const positioned = items
     .filter(item => item && typeof item.str === "string" && item.str.length)
     .map(item => {
       const matrix = item.transform || [0,0,0,0,0,0];
-      const font = getPdfTextStyle(item, styles);
+      const font = getPdfTextStyle(item, styles, resolvedFonts);
       const baseline = pageHeight - matrix[5];
       const left = matrix[4] - pageView[0];
       const width = Math.max(0, item.width || font.size * item.str.length * 0.48);
@@ -389,9 +390,30 @@ async function pdfToWordEditable(file) {
       const pageWidth = pageView[2]-pageView[0];
       const pageHeight = pageView[3]-pageView[1];
       const content = await page.getTextContent();
+      const resolvedFonts = {};
+      // PDF.js exposes original font names through its common object store
+      // after the page operator list has resolved embedded font resources.
+      try {
+        await page.getOperatorList();
+        for (const fontKey of Object.keys(content.styles || {})) {
+          try {
+            const fontObject = page.commonObjs.get(fontKey);
+            resolvedFonts[fontKey] = {
+              name: fontObject?.name || fontKey,
+              isBold: fontObject?.isBold === true,
+              isItalic: fontObject?.isItalic === true
+            };
+          } catch (_) {
+            resolvedFonts[fontKey] = { name: fontKey };
+          }
+        }
+      } catch (_) {
+        // If a PDF uses fonts PDF.js cannot resolve to their original names,
+        // still build an editable document using its fallback font families.
+      }
       const annotations = await page.getAnnotations({intent:"display"});
       const annotationBoxes = getMarkupAnnotationBoxes(annotations,pageView);
-      const lines = groupPdfTextIntoLines(content.items,content.styles,pageHeight,annotationBoxes,pageView);
+      const lines = groupPdfTextIntoLines(content.items,content.styles,resolvedFonts,pageHeight,annotationBoxes,pageView);
       const paragraphs = [];
       let priorBottom = 0;
 
