@@ -731,43 +731,69 @@ async function createPdfFromRenderedWordPage(page, pageNumber) {
     throw new Error("Word page " + pageNumber + " has no measurable page layout.");
   }
 
-  const scale = Math.min(2, 3200 / Math.max(widthPx, heightPx));
-  const options = {
-    margin: 0,
-    image: { type: "jpeg", quality: 0.98 },
-    html2canvas: {
-      scale,
-      useCORS: false,
-      allowTaint: false,
-      backgroundColor: "#FFFFFF",
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: Math.max(document.documentElement.clientWidth, widthPx),
-      windowHeight: Math.max(document.documentElement.clientHeight, heightPx),
-      width: widthPx,
-      height: heightPx
-    },
-    jsPDF: {
-      unit: "pt",
-      format: [widthPx * 0.75, heightPx * 0.75],
-      orientation: widthPx > heightPx ? "landscape" : "portrait",
-      compress: true
-    },
-    pagebreak: { mode: [] }
-  };
+  // Capture one cloned page at the viewport origin. This avoids clipping
+  // later pages that happen to sit below the browser's visible viewport.
+  const captureRoot = document.createElement("div");
+  captureRoot.className = "word-pdf-capture-root";
+  captureRoot.style.width = widthPx + "px";
+  captureRoot.style.height = heightPx + "px";
 
-  setProgress(55 + (pageNumber - 1) * 4, "Rendering Word page " + pageNumber + "…");
+  const captureWrapper = document.createElement("div");
+  captureWrapper.className = "docx-wrapper";
+  captureWrapper.style.width = widthPx + "px";
+  captureWrapper.style.height = heightPx + "px";
 
-  // outputPdf() runs the complete html2pdf prerequisite chain
-  // (clone -> canvas -> image -> PDF) before returning a Blob.
-  const blob = await html2pdf().set(options).from(page).outputPdf("blob");
-  if (!(blob instanceof Blob) || blob.size < 500 || blob.type !== "application/pdf") {
-    throw new Error("The PDF renderer produced an empty file for Word page " + pageNumber + ".");
+  const pageClone = page.cloneNode(true);
+  pageClone.style.margin = "0";
+  pageClone.style.boxShadow = "none";
+  captureWrapper.appendChild(pageClone);
+  captureRoot.appendChild(captureWrapper);
+  document.body.appendChild(captureRoot);
+
+  try {
+    if (document.fonts?.ready) await document.fonts.ready;
+    await waitForDocumentImages(captureRoot);
+
+    const scale = Math.min(2, 3200 / Math.max(widthPx, heightPx));
+    const options = {
+      margin: 0,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale,
+        useCORS: false,
+        allowTaint: false,
+        backgroundColor: "#FFFFFF",
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: Math.max(document.documentElement.clientWidth, widthPx),
+        windowHeight: Math.max(document.documentElement.clientHeight, heightPx),
+        width: widthPx,
+        height: heightPx
+      },
+      jsPDF: {
+        unit: "pt",
+        format: [widthPx * 0.75, heightPx * 0.75],
+        orientation: widthPx > heightPx ? "landscape" : "portrait",
+        compress: true
+      },
+      pagebreak: { mode: [] }
+    };
+
+    setProgress(55 + (pageNumber - 1) * 4, "Rendering Word page " + pageNumber + "…");
+
+    // outputPdf() runs the complete html2pdf prerequisite chain
+    // (clone -> canvas -> image -> PDF) before returning a Blob.
+    const blob = await html2pdf().set(options).from(captureRoot).outputPdf("blob");
+    if (!(blob instanceof Blob) || blob.size < 500 || blob.type !== "application/pdf") {
+      throw new Error("The PDF renderer produced an empty file for Word page " + pageNumber + ".");
+    }
+    return blob;
+  } finally {
+    captureRoot.remove();
   }
-
-  return blob;
 }
+
 
 async function wordToPDF(file) {
   if (!window.html2pdf) {
