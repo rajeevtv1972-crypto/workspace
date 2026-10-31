@@ -929,7 +929,7 @@ async function pdfToWordEditable(file) {
   const document = new docx.Document({
     creator:"Workspace PDF",
     title:safeBaseName(file.name),
-    description:"Editable conversion. Text is recreated as Word text and detected ruled grids are rebuilt as native Word tables; only non-text page artwork remains as an image layer."
+    description:"Editable conversion. Text is recreated as Word text and detected ruled grids are rebuilt as native Word tables; only non-text page artwork remains as an image layer.",
     sections
   });
   return await docx.Packer.toBlob(document);
