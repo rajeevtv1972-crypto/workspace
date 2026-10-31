@@ -50,7 +50,7 @@ const TOOL_CONFIG = {
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
-  "Word to PDF": { accept: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "docx", multiple: false, hint: "DOCX · Up to 15 MB", description: "Convert a Word document into a PDF in your browser.", button: "Convert to PDF" },
+  "Word to PDF": { accept: ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document", kind: "docx", multiple: false, hint: "DOCX · Up to 25 MB · First use downloads a ~240 MB engine, then it is cached", description: "Convert DOCX with LibreOffice for much stronger Word layout, image, shape and page fidelity.", button: "Convert to PDF" },
   "PDF to JPG": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Turn each PDF page into a high-quality JPG image.", button: "Convert to JPG" },
   "JPG to PDF": { accept: ".jpg,.jpeg,.png,image/jpeg,image/png", kind: "image", multiple: true, hint: "JPG or PNG · Select up to 25 images", description: "Combine images into a single PDF document.", button: "Create PDF" },
   "Rotate PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Rotate every page in your PDF.", button: "Rotate PDF" },
@@ -636,242 +636,134 @@ async function jpgToPDF(files) {
   }
   return new Blob([await output.save({useObjectStreams:true})],{type:"application/pdf"});
 }
-let docxPreviewModulePromise;
+let officeEngine = null;
+let officeEnginePromise = null;
+let officeWorkerBlobUrl = null;
 
-async function loadDocxPreview() {
-  if (!docxPreviewModulePromise) {
-    docxPreviewModulePromise = import("https://esm.sh/docx-preview@0.4.1?bundle")
-      .then(module => {
-        const renderer = module.renderAsync || module.default?.renderAsync;
-        if (typeof renderer !== "function") {
-          throw new Error("The Word document renderer did not expose its browser API.");
-        }
-        return { renderAsync: renderer };
-      })
-      .catch(error => {
-        docxPreviewModulePromise = null;
-        throw new Error("The Word page renderer could not load. Check your internet connection and refresh the page. " + (error?.message || ""));
-      });
-  }
-  return await docxPreviewModulePromise;
-}
+const OFFICE_WASM_BASE = "https://erseco.github.io/libreoffice-document-converter/wasm/";
+const OFFICE_WORKER_BUNDLE = "https://cdn.jsdelivr.net/npm/@matbee/libreoffice-converter@2.6.0/dist/browser.worker.global.js";
 
-async function waitForDocumentImages(container) {
-  const images = [...container.querySelectorAll("img")];
-  await Promise.all(images.map(async image => {
-    if (image.complete && image.naturalWidth > 0) return;
-    if (typeof image.decode === "function") {
-      try { await image.decode(); return; } catch (_) {}
-    }
-    await new Promise(resolve => {
-      let finished = false;
-      const done = () => {
-        if (finished) return;
-        finished = true;
-        resolve();
-      };
-      image.addEventListener("load", done, { once: true });
-      image.addEventListener("error", done, { once: true });
-      setTimeout(done, 10000);
-    });
-  }));
-  const broken = images.filter(image => !image.naturalWidth);
-  if (broken.length) {
-    throw new Error("Some embedded images in this Word document could not be rendered. Please try saving the document again in Microsoft Word.");
-  }
-}
+async function getLibreOfficeEngine() {
+  if (officeEngine) return officeEngine;
+  if (officeEnginePromise) return officeEnginePromise;
 
-function findRenderedWordPages(container) {
-  const wrapper = container.querySelector(".docx-wrapper");
-  const searchRoot = wrapper || container;
-  let pages = [...searchRoot.children].filter(element =>
-    element.matches?.("section.docx, .docx-page, section[class~='docx']")
-  );
-
-  if (!pages.length) {
-    pages = [...searchRoot.querySelectorAll("section.docx")];
-  }
-  if (!pages.length) {
-    pages = [...searchRoot.querySelectorAll(".docx")].filter(element =>
-      element !== wrapper && element.querySelector("*")
+  if (!window.crossOriginIsolated || !window.SharedArrayBuffer) {
+    throw new Error(
+      "Your browser tab is not cross-origin isolated, which LibreOffice needs to run safely in a worker. " +
+      "Refresh the website after the latest Cloudflare deployment. If this continues, the site's COOP/COEP headers are not active."
     );
   }
 
-  return pages.filter(page => {
-    const rect = page.getBoundingClientRect();
-    return rect.width > 100 && rect.height > 100;
-  });
-}
+  officeEnginePromise = (async () => {
+    let candidate = null;
+    try {
+      setProgress(8, "Loading the private LibreOffice conversion engine…");
 
-async function createPdfFromRenderedWordPage(page, pageNumber) {
-  if (!window.html2pdf) {
-    throw new Error("The PDF rendering library did not load. Refresh the page and try again.");
-  }
+      const [library, workerResponse] = await Promise.all([
+        import("https://esm.sh/@matbee/libreoffice-converter@2.6.0/browser?bundle"),
+        fetch(OFFICE_WORKER_BUNDLE, { mode: "cors", cache: "force-cache" })
+      ]);
 
-  const rect = page.getBoundingClientRect();
-  const widthPx = Math.ceil(Math.max(rect.width, page.scrollWidth, page.offsetWidth));
-  const heightPx = Math.ceil(Math.max(rect.height, page.scrollHeight, page.offsetHeight));
-  if (widthPx < 100 || heightPx < 100) {
-    throw new Error("Word page " + pageNumber + " has no measurable page layout.");
-  }
+      if (!workerResponse.ok) {
+        throw new Error("Could not download the LibreOffice worker (" + workerResponse.status + ").");
+      }
 
-  // Capture one cloned page at the viewport origin. This avoids clipping
-  // later pages that happen to sit below the browser's visible viewport.
-  const captureRoot = document.createElement("div");
-  captureRoot.className = "word-pdf-capture-root";
-  captureRoot.style.width = widthPx + "px";
-  captureRoot.style.height = heightPx + "px";
+      const workerCode = await workerResponse.text();
+      if (!workerCode || workerCode.length < 10000) {
+        throw new Error("The LibreOffice worker download was incomplete.");
+      }
 
-  const captureWrapper = document.createElement("div");
-  captureWrapper.className = "docx-wrapper";
-  captureWrapper.style.width = widthPx + "px";
-  captureWrapper.style.height = heightPx + "px";
+      // A Blob worker inherits this site's origin. This keeps the worker
+      // same-origin while avoiding a large generated worker bundle in Git.
+      officeWorkerBlobUrl = URL.createObjectURL(
+        new Blob([workerCode], { type: "text/javascript" })
+      );
 
-  const pageClone = page.cloneNode(true);
-  pageClone.style.margin = "0";
-  pageClone.style.boxShadow = "none";
-  captureWrapper.appendChild(pageClone);
-  captureRoot.appendChild(captureWrapper);
-  document.body.appendChild(captureRoot);
+      if (typeof library.WorkerBrowserConverter !== "function") {
+        throw new Error("The LibreOffice browser converter could not be loaded.");
+      }
 
-  try {
-    if (document.fonts?.ready) await document.fonts.ready;
-    await waitForDocumentImages(captureRoot);
+      candidate = new library.WorkerBrowserConverter({
+        sofficeJs: "/wasm/soffice.js",
+        sofficeWasm: OFFICE_WASM_BASE + "soffice.wasm",
+        sofficeData: OFFICE_WASM_BASE + "soffice.data",
+        sofficeWorkerJs: "/wasm/soffice.worker.js",
+        browserWorkerJs: officeWorkerBlobUrl,
+        verbose: false,
+        onProgress: info => {
+          const percent = Math.max(5, Math.min(94, Number(info?.percent) || 5));
+          setProgress(percent, info?.message || "Preparing LibreOffice…");
+        },
+        onError: error => console.error("Workspace LibreOffice worker:", error)
+      });
 
-    const scale = Math.min(2, 3200 / Math.max(widthPx, heightPx));
-    const options = {
-      margin: 0,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        scale,
-        useCORS: false,
-        allowTaint: false,
-        backgroundColor: "#FFFFFF",
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: Math.max(document.documentElement.clientWidth, widthPx),
-        windowHeight: Math.max(document.documentElement.clientHeight, heightPx),
-        width: widthPx,
-        height: heightPx
-      },
-      jsPDF: {
-        unit: "pt",
-        format: [widthPx * 0.75, heightPx * 0.75],
-        orientation: widthPx > heightPx ? "landscape" : "portrait",
-        compress: true
-      },
-      pagebreak: { mode: [] }
-    };
-
-    setProgress(55 + (pageNumber - 1) * 4, "Rendering Word page " + pageNumber + "…");
-
-    // outputPdf() runs the complete html2pdf prerequisite chain
-    // (clone -> canvas -> image -> PDF) before returning a Blob.
-    const blob = await html2pdf().set(options).from(captureRoot).outputPdf("blob");
-    if (!(blob instanceof Blob) || blob.size < 500 || blob.type !== "application/pdf") {
-      throw new Error("The PDF renderer produced an empty file for Word page " + pageNumber + ".");
+      await candidate.initialize();
+      officeEngine = candidate;
+      setProgress(94, "LibreOffice is ready. Converting your Word document…");
+      return officeEngine;
+    } catch (error) {
+      try { await candidate?.destroy(); } catch (_) {}
+      if (officeWorkerBlobUrl) {
+        URL.revokeObjectURL(officeWorkerBlobUrl);
+        officeWorkerBlobUrl = null;
+      }
+      throw error;
     }
-    return blob;
-  } finally {
-    captureRoot.remove();
-  }
-}
+  })().catch(error => {
+    officeEnginePromise = null;
+    throw new Error(
+      "The local Word conversion engine could not start. " +
+      (error?.message || "Please refresh the page and try again.")
+    );
+  });
 
+  return officeEnginePromise;
+}
 
 async function wordToPDF(file) {
-  if (!window.html2pdf) {
-    throw new Error("The PDF generator did not load. Refresh the page and try again.");
-  }
-  if (!window.PDFLib) {
-    throw new Error("The PDF assembly library did not load. Refresh the page and try again.");
-  }
   if (file.size > 25 * 1024 * 1024) {
     throw new Error("Word-to-PDF currently supports DOCX files up to 25 MB.");
   }
 
-  setProgress(5, "Opening your Word document locally…");
+  const extension = (file.name.split(".").pop() || "").toLowerCase();
+  if (extension !== "docx") {
+    throw new Error("Please choose a .docx Word document. Older .doc files are not supported in this version.");
+  }
+
+  setProgress(4, "Preparing your Word document…");
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
-    throw new Error("This file is not a valid DOCX document. Please choose a .docx file (not the older .doc format).");
+    throw new Error("This file is not a valid DOCX document. Please open it in Word and save it again as .docx.");
   }
 
-  const preview = await loadDocxPreview();
-  const stage = document.createElement("div");
-  stage.className = "word-pdf-render-stage";
-  stage.setAttribute("aria-hidden", "true");
+  const converter = await getLibreOfficeEngine();
+  setProgress(95, "Converting with LibreOffice…");
 
-  const styleContainer = document.createElement("div");
-  const bodyContainer = document.createElement("div");
-  bodyContainer.className = "word-pdf-render-body";
-  stage.append(styleContainer, bodyContainer);
-  document.body.appendChild(stage);
+  const result = await converter.convert(
+    bytes,
+    { outputFormat: "pdf" },
+    file.name
+  );
 
-  try {
-    setProgress(14, "Rebuilding the original Word page layout…");
-    await preview.renderAsync(bytes, bodyContainer, styleContainer, {
-      className: "docx",
-      inWrapper: true,
-      ignoreWidth: false,
-      ignoreHeight: false,
-      ignoreFonts: false,
-      breakPages: true,
-      ignoreLastRenderedPageBreak: false,
-      experimental: true,
-      useBase64URL: true,
-      renderChanges: false,
-      renderHeaders: true,
-      renderFooters: true,
-      renderFootnotes: true,
-      renderEndnotes: true,
-      renderComments: false,
-      renderAltChunks: false,
-      debug: false
-    });
-
-    // Let page dimensions, anchored drawings and VML/SVG geometry settle.
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    await waitForDocumentImages(bodyContainer);
-    if (document.fonts?.ready) await document.fonts.ready;
-
-    const pageElements = findRenderedWordPages(bodyContainer);
-    if (!pageElements.length) {
-      throw new Error("The Word renderer could not identify any printable pages in this DOCX file.");
-    }
-    if (pageElements.length > 50) {
-      throw new Error("This document contains more than 50 pages. Please split it into smaller documents.");
-    }
-
-    setProgress(30, "Preparing " + pageElements.length + " Word page" + (pageElements.length === 1 ? "" : "s") + "…");
-    const { PDFDocument } = PDFLib;
-    const outputPdf = await PDFDocument.create();
-
-    for (let i = 0; i < pageElements.length; i++) {
-      const pageBlob = await createPdfFromRenderedWordPage(pageElements[i], i + 1);
-      const pageBytes = new Uint8Array(await pageBlob.arrayBuffer());
-      const pagePdf = await PDFDocument.load(pageBytes);
-      if (pagePdf.getPageCount() !== 1) {
-        throw new Error("Word page " + (i + 1) + " unexpectedly rendered as " + pagePdf.getPageCount() + " PDF pages. Please try the document again.");
-      }
-      const copiedPages = await outputPdf.copyPages(pagePdf, pagePdf.getPageIndices());
-      copiedPages.forEach(page => outputPdf.addPage(page));
-      setProgress(55 + ((i + 1) / pageElements.length) * 38, "Assembling PDF page " + (i + 1) + " of " + pageElements.length + "…");
-    }
-
-    if (outputPdf.getPageCount() !== pageElements.length) {
-      throw new Error("The final PDF page count does not match the original Word document.");
-    }
-    const finalBytes = await outputPdf.save({ useObjectStreams: true });
-    const finalBlob = new Blob([finalBytes], { type: "application/pdf" });
-    if (finalBlob.size < 1000) {
-      throw new Error("The generated PDF is unexpectedly small. The document may not have rendered correctly.");
-    }
-
-    setProgress(98, "Your PDF is ready to download.");
-    return finalBlob;
-  } finally {
-    stage.remove();
+  if (!result?.data || result.data.length < 1000) {
+    throw new Error("LibreOffice returned an empty PDF. Please try opening and saving the Word file again.");
   }
+
+  const pdfBytes = new Uint8Array(result.data);
+  const validPdf =
+    pdfBytes.length >= 5 &&
+    pdfBytes[0] === 0x25 &&
+    pdfBytes[1] === 0x50 &&
+    pdfBytes[2] === 0x44 &&
+    pdfBytes[3] === 0x46 &&
+    pdfBytes[4] === 0x2d;
+
+  if (!validPdf) {
+    throw new Error("The conversion engine returned an invalid PDF file. Your original Word document has not been changed.");
+  }
+
+  setProgress(99, "Your PDF is ready to download.");
+  return new Blob([pdfBytes], { type: "application/pdf" });
 }
 
 async function ocrPDF(file) {
