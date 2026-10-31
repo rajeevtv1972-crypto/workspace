@@ -32,7 +32,7 @@ No backend is required for these browser tools. The old Render service configura
 
 ## Other limitations
 
-- Word-to-PDF fidelity depends on what Mammoth can interpret from DOCX and browser HTML rendering.
+- Word-to-PDF fidelity depends on the DOCX renderer's supported WordprocessingML/DrawingML features and browser canvas rendering. The exported PDF is page-image based, so its text is not selectable/searchable.
 - OCR is English-only in this first version and may misread low-quality scans.
 - Compression rasterizes text and may not reduce PDFs that are already compact.
 - Large PDFs can use significant browser memory. The tool UI applies per-tool page and file-size limits.
