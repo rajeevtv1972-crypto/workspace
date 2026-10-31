@@ -880,15 +880,24 @@ async function pdfImageObjectToPng(imageObject) {
   const context=canvas.getContext("2d",{alpha:true});
   if(!context) return null;
 
-  // Prefer a decoded bitmap/image when PDF.js has already produced one.
+  let decoded=false;
   const bitmap=imageObject.bitmap || imageObject.canvas || imageObject.image;
   if(bitmap && typeof context.drawImage==="function") {
     try {
       context.drawImage(bitmap,0,0,width,height);
+      decoded=true;
     } catch (_) {}
   }
 
-  if(!context.getImageData(0,0,1,1).data.some(value=>value!==0) && imageObject.data) {
+  // Some PDF.js builds expose an ImageBitmap/canvas directly as the object.
+  if(!decoded) {
+    try {
+      context.drawImage(imageObject,0,0,width,height);
+      decoded=true;
+    } catch (_) {}
+  }
+
+  if(!decoded && imageObject.data) {
     const raw=imageObject.data instanceof Uint8Array || imageObject.data instanceof Uint8ClampedArray
       ? imageObject.data
       : null;
@@ -908,7 +917,6 @@ async function pdfImageObjectToPng(imageObject) {
           rgba[j]=raw[i]; rgba[j+1]=raw[i]; rgba[j+2]=raw[i]; rgba[j+3]=255;
         }
       } else if(raw.length===Math.ceil(width/8)*height) {
-        // PDF.js 1-bit grayscale/mask images store pixels packed 8 per byte.
         const rowBytes=Math.ceil(width/8);
         rgba=new Uint8ClampedArray(pixelCount*4);
         for(let y=0;y<height;y++) {
@@ -922,17 +930,20 @@ async function pdfImageObjectToPng(imageObject) {
       }
       if(rgba) {
         context.putImageData(new ImageData(rgba,Math.floor(width),Math.floor(height)),0,0);
+        decoded=true;
       }
     }
   }
 
-  const pixels=context.getImageData(0,0,1,1).data;
-  if(!imageObject.bitmap && !imageObject.canvas && !imageObject.image && !imageObject.data) {
-    canvas.width=1; canvas.height=1;
+  if(!decoded) {
+    canvas.width=1;
+    canvas.height=1;
     return null;
   }
+
   const png=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
-  canvas.width=1; canvas.height=1;
+  canvas.width=1;
+  canvas.height=1;
   if(!png) return null;
   return new Uint8Array(await png.arrayBuffer());
 }
