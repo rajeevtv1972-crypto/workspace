@@ -5,7 +5,7 @@ A browser-based PDF toolbox. Document files are processed locally in the visitor
 ## Tools
 
 - PDF to Word: creates an editable DOCX with recovered font sizes, original font names where PDF.js exposes them, bold/italic style inference, line breaks, approximate line positioning, and Word highlight/underline/strike formatting for detected PDF markup annotations.
-- Word to PDF: converts DOCX content to PDF in the browser.
+- Word to PDF: converts DOCX content to PDF in the browser, preserving semantic headings, lists, basic tables, bold/italic text, links, line breaks, and embedded images where supported. Older .doc files are not supported; use .docx.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
 - Compress PDF: re-renders pages as optimized JPEG images. This can reduce size for image-heavy PDFs, but text in the compressed output is no longer selectable. If the result would be larger, the tool leaves the original untouched and reports that.
