@@ -628,6 +628,63 @@ function findPdfTableCellIndex(value, boundaries) {
   return -1;
 }
 
+function splitPdfTableTextAcrossColumns(item, geometry, region) {
+  const first=findPdfTableCellIndex(geometry.x+0.2,region.columns);
+  const last=findPdfTableCellIndex(geometry.x+geometry.width-0.2,region.columns);
+  if(first<0 || last<=first) {
+    return [{text:String(item.str||""),geometry}];
+  }
+
+  const font=geometry.font;
+  const measureCanvas=document.createElement("canvas");
+  const measureContext=measureCanvas.getContext("2d");
+  let parts=[];
+  if(measureContext) {
+    measureContext.font=(font.bold?"bold ":"")+(font.italics?"italic ":"")+
+      Math.max(4,font.size)+"px "+font.font;
+    const matcher=/\S+\s*/g;
+    let match;
+    while((match=matcher.exec(String(item.str||"")))!==null) {
+      parts.push({text:match[0],width:measureContext.measureText(match[0]).width});
+    }
+  }
+  if(parts.length<2) {
+    parts=String(item.str||"").split(/(\s+)/).filter(Boolean).map(text=>({
+      text,
+      width:Math.max(1,text.length)
+    }));
+  }
+
+  const total=parts.reduce((sum,part)=>sum+part.width,0)||1;
+  const scale=geometry.width/total;
+  let cursor=geometry.x;
+  const groups=[];
+  for(const part of parts) {
+    const width=Math.max(0.2,part.width*scale);
+    const col=findPdfTableCellIndex(cursor+width/2,region.columns);
+    const current=groups[groups.length-1];
+    if(current && current.col===col) {
+      current.text+=part.text;
+      current.width+=width;
+    } else {
+      groups.push({col,text:part.text,x:cursor,width});
+    }
+    cursor+=width;
+  }
+
+  const usable=groups.filter(group=>group.col>=0);
+  if(usable.length<2) return [{text:String(item.str||""),geometry}];
+  return usable.map(group=>({
+    text:group.text,
+    geometry:{
+      ...geometry,
+      x:group.x,
+      width:group.width,
+      centerX:group.x+group.width/2
+    }
+  }));
+}
+
 function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, renderScale, imageData) {
   const excludedItems=new Set();
   const tables=[];
@@ -649,22 +706,29 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
       ) continue;
 
       const row=findPdfTableCellIndex(geometry.centerY,region.rows);
-      const col=findPdfTableCellIndex(geometry.centerX,region.columns);
-      if(row<0 || col<0) continue;
+      if(row<0) continue;
 
-      cells[row][col].push({
-        item,
-        geometry,
-        color:sampleTextInk(imageData,{
-          left:geometry.x*renderScale-0.6,
-          top:geometry.y*renderScale-0.6,
-          right:(geometry.x+geometry.width)*renderScale+0.6,
-          bottom:(geometry.y+geometry.height)*renderScale+0.6,
-          width:geometry.width*renderScale+1.2,
-          height:geometry.height*renderScale+1.2
-        },[255,255,255])
-      });
-      excludedItems.add(item);
+      const chunks=splitPdfTableTextAcrossColumns(item,geometry,region);
+      let assigned=false;
+      for(const chunk of chunks) {
+        const col=findPdfTableCellIndex(chunk.geometry.centerX,region.columns);
+        if(col<0) continue;
+        const inkBox={
+          left:chunk.geometry.x*renderScale-0.6,
+          top:chunk.geometry.y*renderScale-0.6,
+          right:(chunk.geometry.x+chunk.geometry.width)*renderScale+0.6,
+          bottom:(chunk.geometry.y+chunk.geometry.height)*renderScale+0.6,
+          width:chunk.geometry.width*renderScale+1.2,
+          height:chunk.geometry.height*renderScale+1.2
+        };
+        cells[row][col].push({
+          item:{...item,str:chunk.text},
+          geometry:chunk.geometry,
+          color:sampleTextInk(imageData,inkBox,[255,255,255])
+        });
+        assigned=true;
+      }
+      if(assigned) excludedItems.add(item);
     }
 
     const rows=[];
@@ -740,6 +804,7 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
       const rowHeight=Math.max(100,Math.round((region.rows[r+1]-region.rows[r])*20));
       rows.push(new docx.TableRow({
         height:{value:rowHeight,rule:"atLeast"},
+        tableHeader:r===0,
         cantSplit:true,
         children:docxCells
       }));
