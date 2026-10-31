@@ -4,8 +4,8 @@ A browser-based PDF toolbox. Selected files are processed locally in the visitor
 
 ## Tools
 
-- PDF to Word: rebuilds the PDF page artwork as a high-resolution background layer, then places extracted text back as separately editable, absolutely positioned Word text frames. This preserves logos, images, vector rules, tables, page graphics and page geometry while keeping extracted text editable. Font names/weights and run sizes are recovered where PDF.js exposes them; glyph colors are sampled from the rendered page.
-- Word to PDF: converts DOCX content to PDF in the browser, preserving semantic headings, lists, basic tables, bold/italic text, links, line breaks and embedded images where Mammoth supports them.
+- PDF to Word: rebuilds PDF page artwork as a high-resolution background layer, then places extracted text back as separately editable, positioned Word text frames. This preserves logos, images, vector rules, tables, page graphics and page geometry while keeping extracted text editable. Font names/weights and run sizes are recovered where PDF.js exposes them; glyph colours are sampled from the rendered page.
+- Word to PDF: converts DOCX to PDF with LibreOffice compiled to WebAssembly, running in a browser worker. This uses an office document layout engine rather than HTML reconstruction, so page geometry, fonts, floating objects, images, tables, headers/footers and section breaks are handled much more faithfully. The first use downloads the roughly 240 MB engine from a CORS-enabled static runtime host; the browser caches it for later conversions. The DOCX file itself is processed locally and is not uploaded. Older binary .doc files are not supported.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
 - Compress PDF: re-renders pages as optimized JPEG images. This can reduce size for image-heavy PDFs, but text in the compressed output is no longer selectable. If the result would be larger, the tool leaves the original untouched and reports that.
@@ -16,13 +16,15 @@ A browser-based PDF toolbox. Selected files are processed locally in the visitor
 
 ## PDF-to-Word layout model and limitations
 
-The original PDF is used as a page artwork layer. Text boxes are cleared from that layer and recreated as positioned, editable Word text frames. This retains non-text items such as logos, signatures/lines, table borders and other drawings that text extraction alone cannot reproduce.
+The original PDF is used as a page artwork layer. Text boxes are cleared from that layer and recreated as positioned, editable Word text frames. This retains non-text items such as logos, signatures/lines, table borders and other drawings.
 
-The text remains editable, but this is not a fully semantic reconstruction: table borders and vector artwork are preserved as page graphics, not native Word table cells or drawing objects. Editing text is supported; changing the structure of a table requires rebuilding that table in Word. If text is moved or substantially lengthened, the preserved page artwork will not automatically reflow. Exact font reproduction depends on the font being available in the PDF and on the viewer's installed fonts. Scanned text that is only part of an image is not editable unless OCR is performed first.
+The text remains editable, but table borders and other graphics are page artwork, not native Word table cells or drawing objects. If text is moved or substantially lengthened, the preserved artwork will not automatically reflow. Exact font reproduction depends on the original fonts being available in the PDF and in the Word viewer. Scanned text that is only part of an image is not editable unless OCR is performed first.
 
-## Browser libraries
+## Browser libraries and Word-to-PDF runtime
 
-The static page loads PDF.js, docx.js, pdf-lib, JSZip, html2pdf.js and Tesseract.js from versioned public CDNs. Word-to-PDF loads docx-preview on demand as an ESM module. These libraries are downloaded by the browser; the selected document itself is processed on-device.
+The static page loads PDF.js, docx.js, pdf-lib, JSZip and Tesseract.js from versioned public CDNs. Word-to-PDF dynamically imports the browser API for `@matbee/libreoffice-converter` and loads its worker bundle from a versioned CDN. The small Emscripten loader and pthread worker are hosted same-origin in `/wasm/`; the larger WebAssembly and filesystem binaries are fetched from the public CORS-enabled runtime host.
+
+The document being converted remains in the browser. The LibreOffice engine is cached by the browser after its first download.
 
 ## Deployment
 
@@ -30,14 +32,13 @@ Deploy the repository root as a static site (no build command; output directory 
 
 No backend is required for these browser tools. The old Render service configuration and backend folder are retained in the repository for reference but are not used by the frontend.
 
+## Word-to-PDF isolation headers
+
+Cloudflare Pages must serve the site with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so the browser can use `SharedArrayBuffer` for the LibreOffice WebAssembly worker. These headers are configured in the repository's `_headers` file. External script and font references use CORS mode.
+
 ## Other limitations
 
-- Word-to-PDF uses LibreOffice's Writer layout engine and exports a native PDF, preserving selectable/searchable text. Font substitutions can still change line wrapping when a source font is not included in the engine.
+- Word-to-PDF layout fidelity depends on the fonts available in the LibreOffice WebAssembly build. Fonts not included in that runtime may be substituted, which can alter line wrapping.
 - OCR is English-only in this first version and may misread low-quality scans.
 - Compression rasterizes text and may not reduce PDFs that are already compact.
 - Large PDFs can use significant browser memory. The tool UI applies per-tool page and file-size limits.
-
-
-## Word-to-PDF isolation headers
-
-Cloudflare Pages must serve the site with `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` so the browser can use `SharedArrayBuffer` for the LibreOffice WebAssembly worker. These headers are configured in the repository's `_headers` file. External script and font references use CORS mode. The large WebAssembly binaries are fetched from the public CORS-enabled static runtime host; the document being converted stays inside the browser.
