@@ -1,10 +1,10 @@
 # Workspace PDF
 
-A browser-based PDF toolbox. Document files are processed locally in the visitor's browser; the conversion code does not upload documents to a Workspace server.
+A browser-based PDF toolbox. Document files are processed locally in the visitor's browser; the selected document is not uploaded to a Workspace conversion server.
 
-## Tools currently implemented
+## Tools
 
-- PDF to Word: defaults to visual-fidelity mode, rendering each PDF page as a high-resolution image in a matching-size Word section. This preserves the appearance of fonts, line breaks, tables, diagrams, and images. The page image is not directly editable as Word text. An optional basic editable-text mode extracts selectable text but may change layout.
+- PDF to Word: creates an editable DOCX with recovered font sizes, original font names where PDF.js exposes them, bold/italic style inference, line breaks, approximate line positioning, and Word highlight/underline/strike formatting for detected PDF markup annotations.
 - Word to PDF: converts DOCX content to PDF in the browser.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
@@ -16,17 +16,22 @@ A browser-based PDF toolbox. Document files are processed locally in the visitor
 
 ## Browser libraries
 
-The static page loads PDF.js, docx.js, pdf-lib, JSZip, Mammoth, html2pdf.js, and Tesseract.js from versioned public CDNs. These libraries are downloaded by the browser; the selected document itself is processed on-device.
+The static page loads PDF.js, docx.js, pdf-lib, JSZip, Mammoth, html2pdf.js, and Tesseract.js from public CDNs. These libraries are downloaded by the browser; the selected document itself is processed on-device.
 
 ## Deployment
 
 Deploy the repository root as a static site (no build command; output directory `.`) on Cloudflare Pages.
 
-No backend is needed for the tools above. The old Render service configuration and backend folder are retained in the repository for reference but are not used by the frontend.
+No backend is required for these browser tools. The old Render service configuration and backend folder are retained in the repository for reference but are not used by the frontend.
 
-## Important limitations
+## PDF-to-Word fidelity notes
 
-- Visual-fidelity PDF-to-Word preserves appearance by embedding each PDF page as a high-resolution page image in DOCX. Text in this mode is not directly editable. The optional editable-text mode does not fully reconstruct complex layouts, tables, embedded images, or exact typography.
+The single PDF-to-Word action now always creates editable text; there is no image-only mode selector. The converter retains extracted characters (including brackets and punctuation), text run sizes, original font names where available, line grouping, and detected PDF highlight/underline/strike annotations.
+
+PDFs are a fixed-position drawing format, whereas Word reflows text. Some PDF fonts are subsetted or embedded and cannot be recreated as editable fonts in DOCX without font files and licensing. Exact colors, custom typography, tables, positioned images, columns, and pixel-identical page layout may therefore still differ. This is a best-effort editable conversion rather than a guaranteed exact replica. Scanned/image-only PDFs need OCR before text can be reconstructed.
+
+## Other limitations
+
 - Word-to-PDF fidelity depends on what Mammoth can interpret from DOCX and browser HTML rendering.
 - OCR is English-only in this first version and may misread low-quality scans.
 - Compression rasterizes text and may not reduce PDFs that are already compact.
