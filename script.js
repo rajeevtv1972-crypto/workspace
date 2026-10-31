@@ -878,7 +878,6 @@ async function extractPdfImageBlocks(page, operatorList, pageHeight) {
   const stack=[];
   let matrix=[1,0,0,1,0,0];
   const paints=[];
-  const seen=new Set();
 
   for(let i=0;i<operatorList.fnArray.length;i++) {
     const fn=operatorList.fnArray[i];
@@ -900,10 +899,6 @@ async function extractPdfImageBlocks(page, operatorList, pageHeight) {
       ? await getPdfObjectAsync(page.objs,objectId) || await getPdfObjectAsync(page.commonObjs,objectId)
       : objectId;
     if(!object) continue;
-
-    const key=(typeof objectId==="string"?objectId:"inline-"+i);
-    if(seen.has(key)) continue;
-    seen.add(key);
 
     const p1=transformPdfPoint(matrix,0,0);
     const p2=transformPdfPoint(matrix,1,0);
