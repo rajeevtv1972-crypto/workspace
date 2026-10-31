@@ -433,6 +433,25 @@ function detectPdfTableRegions(operatorList, pageHeight) {
     const pathOps = args[0];
     const pathArgs = args[1];
     let cursor = 0;
+    let currentPoint = null;
+    let subpathStart = null;
+
+    const addSegment = (p1,p2) => {
+      const a=transformPdfPoint(matrix,p1[0],p1[1]);
+      const b=transformPdfPoint(matrix,p2[0],p2[1]);
+      if(Math.abs(a[1]-b[1])<=1.5 && Math.abs(a[0]-b[0])>=10) {
+        const x0=Math.min(a[0],b[0]), x1=Math.max(a[0],b[0]);
+        const y=(a[1]+b[1])/2;
+        horizontalSegments.push({position:y,start:x0,end:x1});
+      } else if(Math.abs(a[0]-b[0])<=1.5 && Math.abs(a[1]-b[1])>=7.5) {
+        const y0=Math.min(a[1],b[1]), y1=Math.max(a[1],b[1]);
+        verticalSegments.push({
+          position:(a[0]+b[0])/2,
+          start:pageHeight-y1,
+          end:pageHeight-y0
+        });
+      }
+    };
 
     for (const pathOp of pathOps) {
       if (pathOp === OPS.rectangle) {
@@ -442,39 +461,31 @@ function detectPdfTableRegions(operatorList, pageHeight) {
         const height = Number(pathArgs[cursor++]);
         if (![x,y,width,height].every(Number.isFinite)) continue;
 
-        const points = [
-          transformPdfPoint(matrix,x,y),
-          transformPdfPoint(matrix,x+width,y),
-          transformPdfPoint(matrix,x+width,y+height),
-          transformPdfPoint(matrix,x,y+height)
-        ];
-        const xs = points.map(point=>point[0]);
-        const ys = points.map(point=>point[1]);
-        const x0 = Math.min(...xs), x1 = Math.max(...xs);
-        const y0 = Math.min(...ys), y1 = Math.max(...ys);
-        const rectWidth = x1-x0, rectHeight = y1-y0;
-
-        if (rectWidth <= 2.6 && rectHeight >= 7.5) {
-          verticalSegments.push({
-            position:(x0+x1)/2,
-            start:pageHeight-y1,
-            end:pageHeight-y0
-          });
-        } else if (rectHeight <= 2.6 && rectWidth >= 10) {
-          horizontalSegments.push({
-            position:pageHeight-(y0+y1)/2,
-            start:x0,
-            end:x1
-          });
-        }
-      } else if (
-        pathOp === OPS.moveTo ||
-        pathOp === OPS.lineTo ||
-        pathOp === OPS.curveTo
-      ) {
-        cursor += pathOp === OPS.curveTo ? 6 : 2;
-      } else if (pathOp === OPS.curveTo2 || pathOp === OPS.curveTo3) {
-        cursor += 4;
+        const p1=[x,y], p2=[x+width,y], p3=[x+width,y+height], p4=[x,y+height];
+        addSegment(p1,p2);
+        addSegment(p2,p3);
+        addSegment(p3,p4);
+        addSegment(p4,p1);
+        currentPoint=p1;
+        subpathStart=p1;
+      } else if(pathOp===OPS.moveTo) {
+        const x=Number(pathArgs[cursor++]), y=Number(pathArgs[cursor++]);
+        currentPoint=[x,y];
+        subpathStart=currentPoint;
+      } else if(pathOp===OPS.lineTo) {
+        const x=Number(pathArgs[cursor++]), y=Number(pathArgs[cursor++]);
+        const next=[x,y];
+        if(currentPoint) addSegment(currentPoint,next);
+        currentPoint=next;
+      } else if(pathOp===OPS.closePath) {
+        if(currentPoint && subpathStart) addSegment(currentPoint,subpathStart);
+        currentPoint=subpathStart;
+      } else if(pathOp===OPS.curveTo) {
+        cursor+=6;
+        currentPoint=null;
+      } else if(pathOp===OPS.curveTo2 || pathOp===OPS.curveTo3) {
+        cursor+=4;
+        currentPoint=null;
       }
     }
   }
