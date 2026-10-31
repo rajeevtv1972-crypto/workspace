@@ -182,7 +182,7 @@ function getPDFLib() {
 }
 async function loadPdfJs(file) {
   if (!window.pdfjsLib) throw new Error("The PDF reader could not load. Check your internet connection and refresh.");
-  return await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  return await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isOffscreenCanvasSupported: false }).promise;
 }
 function getResolvedPdfFonts(page, content) {
   const resolved = {};
@@ -841,6 +841,18 @@ async function pdfImageObjectToPng(imageObject) {
         rgba=new Uint8ClampedArray(pixelCount*4);
         for(let i=0,j=0;i<raw.length;i++,j+=4) {
           rgba[j]=raw[i]; rgba[j+1]=raw[i]; rgba[j+2]=raw[i]; rgba[j+3]=255;
+        }
+      } else if(raw.length===Math.ceil(width/8)*height) {
+        // PDF.js 1-bit grayscale/mask images store pixels packed 8 per byte.
+        const rowBytes=Math.ceil(width/8);
+        rgba=new Uint8ClampedArray(pixelCount*4);
+        for(let y=0;y<height;y++) {
+          for(let x=0;x<width;x++) {
+            const bit=(raw[y*rowBytes+Math.floor(x/8)]>>(7-(x%8)))&1;
+            const value=bit?255:0;
+            const j=(y*width+x)*4;
+            rgba[j]=value; rgba[j+1]=value; rgba[j+2]=value; rgba[j+3]=255;
+          }
         }
       }
       if(rgba) {
