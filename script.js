@@ -46,7 +46,7 @@ const uploadHint = document.getElementById("uploadHint");
 const chooseFileButton = document.getElementById("chooseFile");
 
 const TOOL_CONFIG = {
-  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Preserve page artwork, logos and table rules while making the PDF text editable in Word.", button: "Convert to Word" },
+  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Convert PDF text into editable Word text and rebuild detected table grids as real editable Word tables.", button: "Convert to Word" },
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
@@ -291,13 +291,13 @@ function sampleTextInk(imageData, rect, background) {
   return values.map(channel=>medianChannel(channel).toString(16).padStart(2,"0")).join("").toUpperCase();
 }
 
-function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale, imageData, context) {
+function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale, imageData, context, excludedItems = new Set()) {
   const output = [];
   const {width:canvasWidth,height:canvasHeight} = context.canvas;
   let maskedCount = 0;
 
   for (const item of content.items || []) {
-    if (!item || typeof item.str !== "string" || !item.str.trim()) continue;
+    if (!item || excludedItems.has(item) || typeof item.str !== "string" || !item.str.trim()) continue;
     const matrix = item.transform || [0,0,0,0,0,0];
     const style = content.styles?.[item.fontName] || {};
     const font = inferPdfFont(item,style,resolvedFonts[item.fontName]);
@@ -356,6 +356,392 @@ function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale,
   return {items:output,maskedCount};
 }
 
+function multiplyPdfMatrices(a, b) {
+  return [
+    a[0]*b[0] + a[2]*b[1],
+    a[1]*b[0] + a[3]*b[1],
+    a[0]*b[2] + a[2]*b[3],
+    a[1]*b[2] + a[3]*b[3],
+    a[0]*b[4] + a[2]*b[5] + a[4],
+    a[1]*b[4] + a[3]*b[5] + a[5]
+  ];
+}
+
+function transformPdfPoint(matrix, x, y) {
+  return [
+    matrix[0]*x + matrix[2]*y + matrix[4],
+    matrix[1]*x + matrix[3]*y + matrix[5]
+  ];
+}
+
+function mergePdfLineSegments(segments, orientation) {
+  const sorted = [...segments].sort((a,b) =>
+    a.position-b.position || a.start-b.start
+  );
+  const merged = [];
+  for (const segment of sorted) {
+    const current = merged[merged.length-1];
+    if (
+      current &&
+      Math.abs(current.position-segment.position) <= 1.35 &&
+      segment.start <= current.end + 3.2
+    ) {
+      current.position = (current.position*current.count+segment.position)/(current.count+1);
+      current.count += 1;
+      current.start = Math.min(current.start,segment.start);
+      current.end = Math.max(current.end,segment.end);
+    } else {
+      merged.push({
+        orientation,
+        position:segment.position,
+        start:segment.start,
+        end:segment.end,
+        count:1
+      });
+    }
+  }
+  return merged;
+}
+
+function detectPdfTableRegions(operatorList, pageHeight) {
+  const OPS = pdfjsLib.OPS;
+  if (!OPS || OPS.constructPath === undefined || OPS.rectangle === undefined) return [];
+
+  const horizontalSegments = [];
+  const verticalSegments = [];
+  const stateStack = [];
+  let matrix = [1,0,0,1,0,0];
+
+  for (let i=0;i<operatorList.fnArray.length;i++) {
+    const fn = operatorList.fnArray[i];
+    const args = operatorList.argsArray[i] || [];
+
+    if (fn === OPS.save) {
+      stateStack.push(matrix.slice());
+      continue;
+    }
+    if (fn === OPS.restore) {
+      if (stateStack.length) matrix = stateStack.pop();
+      continue;
+    }
+    if (fn === OPS.transform && Array.isArray(args) && args.length >= 6) {
+      matrix = multiplyPdfMatrices(matrix,args);
+      continue;
+    }
+    if (fn !== OPS.constructPath || !args[0] || !args[1]) continue;
+
+    const pathOps = args[0];
+    const pathArgs = args[1];
+    let cursor = 0;
+
+    for (const pathOp of pathOps) {
+      if (pathOp === OPS.rectangle) {
+        const x = Number(pathArgs[cursor++]);
+        const y = Number(pathArgs[cursor++]);
+        const width = Number(pathArgs[cursor++]);
+        const height = Number(pathArgs[cursor++]);
+        if (![x,y,width,height].every(Number.isFinite)) continue;
+
+        const points = [
+          transformPdfPoint(matrix,x,y),
+          transformPdfPoint(matrix,x+width,y),
+          transformPdfPoint(matrix,x+width,y+height),
+          transformPdfPoint(matrix,x,y+height)
+        ];
+        const xs = points.map(point=>point[0]);
+        const ys = points.map(point=>point[1]);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const y0 = Math.min(...ys), y1 = Math.max(...ys);
+        const rectWidth = x1-x0, rectHeight = y1-y0;
+
+        // Ruled PDF tables are commonly represented as filled thin rectangles,
+        // rather than stroked line paths. Keep only long, near-axis-aligned bars.
+        if (rectWidth <= 2.6 && rectHeight >= 7.5) {
+          verticalSegments.push({
+            position:(x0+x1)/2,
+            start:pageHeight-y1,
+            end:pageHeight-y0
+          });
+        } else if (rectHeight <= 2.6 && rectWidth >= 10) {
+          horizontalSegments.push({
+            position:pageHeight-(y0+y1)/2,
+            start:x0,
+            end:x1
+          });
+        }
+      } else if (
+        pathOp === OPS.moveTo ||
+        pathOp === OPS.lineTo ||
+        pathOp === OPS.curveTo
+      ) {
+        cursor += pathOp === OPS.curveTo ? 6 : 2;
+      } else if (pathOp === OPS.curveTo2 || pathOp === OPS.curveTo3) {
+        cursor += 4;
+      }
+    }
+  }
+
+  const horizontal = mergePdfLineSegments(horizontalSegments,"h");
+  const vertical = mergePdfLineSegments(verticalSegments,"v");
+  if (horizontal.length < 2 || vertical.length < 2) return [];
+
+  // Connected horizontal/vertical rule segments form independent table grids.
+  const total = horizontal.length + vertical.length;
+  const visited = new Set();
+  const components = [];
+
+  for (let seed=0;seed<total;seed++) {
+    if (visited.has(seed)) continue;
+    const queue=[seed];
+    visited.add(seed);
+    const hLines=[];
+    const vLines=[];
+
+    while(queue.length) {
+      const node=queue.shift();
+      if(node<horizontal.length) hLines.push(horizontal[node]);
+      else vLines.push(vertical[node-horizontal.length]);
+
+      if(node<horizontal.length) {
+        const h=horizontal[node];
+        for(let j=0;j<vertical.length;j++) {
+          const v=vertical[j];
+          if(
+            v.position>=h.start-1.5 &&
+            v.position<=h.end+1.5 &&
+            h.position>=v.start-1.5 &&
+            h.position<=v.end+1.5
+          ) {
+            const next=horizontal.length+j;
+            if(!visited.has(next)) { visited.add(next); queue.push(next); }
+          }
+        }
+      } else {
+        const v=vertical[node-horizontal.length];
+        for(let j=0;j<horizontal.length;j++) {
+          const h=horizontal[j];
+          if(
+            v.position>=h.start-1.5 &&
+            v.position<=h.end+1.5 &&
+            h.position>=v.start-1.5 &&
+            h.position<=v.end+1.5 &&
+            !visited.has(j)
+          ) { visited.add(j); queue.push(j); }
+        }
+      }
+    }
+
+    if(hLines.length<2 || vLines.length<3) continue;
+    const xs=[...new Set(vLines.map(line=>Math.round(line.position*2)/2))].sort((a,b)=>a-b);
+    const ys=[...new Set(hLines.map(line=>Math.round(line.position*2)/2))].sort((a,b)=>a-b);
+    if(xs.length<3 || ys.length<2) continue;
+    const x0=xs[0], x1=xs[xs.length-1], y0=ys[0], y1=ys[ys.length-1];
+    if(x1-x0<65 || y1-y0<15) continue;
+
+    components.push({
+      x0,x1,y0,y1,
+      columns:xs,
+      rows:ys
+    });
+  }
+
+  // Remove nested/duplicate candidates caused by repeated shaded grid rules.
+  components.sort((a,b)=>(a.y0-b.y0)||(a.x0-b.x0));
+  const regions=[];
+  for(const candidate of components) {
+    const duplicate=regions.some(region =>
+      Math.abs(region.x0-candidate.x0)<2 &&
+      Math.abs(region.x1-candidate.x1)<2 &&
+      Math.abs(region.y0-candidate.y0)<2 &&
+      Math.abs(region.y1-candidate.y1)<2
+    );
+    if(!duplicate) regions.push(candidate);
+  }
+  return regions;
+}
+
+function pdfItemGeometry(item, pageHeight, styles, resolvedFonts) {
+  const matrix=item.transform || [0,0,0,0,0,0];
+  const style=styles?.[item.fontName] || {};
+  const font=inferPdfFont(item,style,resolvedFonts[item.fontName]);
+  const baselineX=matrix[4]||0;
+  const baselineY=pageHeight-(matrix[5]||0);
+  const ascent=Math.max(0.55,Math.min(1.1,Math.abs(style.ascent??0.82)));
+  const descent=Math.max(0.08,Math.min(0.45,Math.abs(style.descent??0.22)));
+  const width=Math.max(item.width||0,font.size*String(item.str||"").length*0.28);
+  const top=Math.max(0,baselineY-font.size*ascent);
+  const height=Math.max(item.height||0,font.size*(ascent+descent));
+  return {
+    x:Math.max(0,baselineX),
+    y:top,
+    width:Math.max(1,width),
+    height:Math.max(1,height),
+    centerX:baselineX+Math.max(1,width)/2,
+    centerY:top+Math.max(1,height)/2,
+    font
+  };
+}
+
+function findPdfTableCellIndex(value, boundaries) {
+  for(let i=0;i<boundaries.length-1;i++) {
+    if(value>=boundaries[i]-0.8 && value<boundaries[i+1]-0.2) return i;
+  }
+  if(value>=boundaries[boundaries.length-1]-0.2) return boundaries.length-2;
+  return -1;
+}
+
+function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, renderScale, imageData) {
+  const excludedItems=new Set();
+  const tables=[];
+
+  for(const region of regions) {
+    const rowCount=region.rows.length-1;
+    const colCount=region.columns.length-1;
+    if(rowCount<1 || colCount<2) continue;
+
+    const cells=Array.from({length:rowCount},()=>Array.from({length:colCount},()=>[]));
+    for(const item of content.items||[]) {
+      if(!item || typeof item.str!=="string" || !item.str.trim()) continue;
+      const geometry=pdfItemGeometry(item,pageHeight,content.styles,resolvedFonts);
+      if(
+        geometry.centerX<region.x0-1.5 ||
+        geometry.centerX>region.x1+1.5 ||
+        geometry.centerY<region.y0-1.5 ||
+        geometry.centerY>region.y1+1.5
+      ) continue;
+
+      const row=findPdfTableCellIndex(geometry.centerY,region.rows);
+      const col=findPdfTableCellIndex(geometry.centerX,region.columns);
+      if(row<0 || col<0) continue;
+
+      cells[row][col].push({
+        item,
+        geometry,
+        color:sampleTextInk(imageData,{
+          left:geometry.x*renderScale-0.6,
+          top:geometry.y*renderScale-0.6,
+          right:(geometry.x+geometry.width)*renderScale+0.6,
+          bottom:(geometry.y+geometry.height)*renderScale+0.6,
+          width:geometry.width*renderScale+1.2,
+          height:geometry.height*renderScale+1.2
+        },[255,255,255])
+      });
+      excludedItems.add(item);
+    }
+
+    const rows=[];
+    for(let r=0;r<rowCount;r++) {
+      const docxCells=[];
+      for(let c=0;c<colCount;c++) {
+        const entries=cells[r][c].sort((a,b)=>
+          a.geometry.centerY-b.geometry.centerY || a.geometry.x-b.geometry.x
+        );
+        const lineGroups=[];
+        for(const entry of entries) {
+          let line=lineGroups[lineGroups.length-1];
+          const tolerance=Math.max(1.4,Math.min(2.6,entry.geometry.font.size*0.22));
+          if(!line || Math.abs(line.centerY-entry.geometry.centerY)>tolerance) {
+            line={centerY:entry.geometry.centerY,entries:[]};
+            lineGroups.push(line);
+          }
+          line.entries.push(entry);
+          line.centerY=line.entries.reduce((sum,value)=>sum+value.geometry.centerY,0)/line.entries.length;
+        }
+
+        const paragraphs=[];
+        for(const line of lineGroups) {
+          line.entries.sort((a,b)=>a.geometry.x-b.geometry.x);
+          const runs=[];
+          let previousRight=null;
+          let referenceSize=8;
+          for(const entry of line.entries) {
+            const text=String(entry.item.str||"");
+            if(!text) continue;
+            if(
+              previousRight!==null &&
+              entry.geometry.x-previousRight>Math.max(1.8,entry.geometry.font.size*0.18) &&
+              !text.startsWith(" ")
+            ) {
+              runs.push(new docx.TextRun({text:" "}));
+            }
+            runs.push(new docx.TextRun({
+              text,
+              font:entry.geometry.font.font,
+              size:Math.max(8,Math.round(entry.geometry.font.size*2)),
+              bold:entry.geometry.font.bold,
+              italics:entry.geometry.font.italics,
+              color:entry.color
+            }));
+            previousRight=Math.max(previousRight??0,entry.geometry.x+entry.geometry.width);
+            referenceSize=Math.max(referenceSize,entry.geometry.font.size);
+          }
+          if(runs.length) {
+            paragraphs.push(new docx.Paragraph({
+              spacing:{before:0,after:0,line:Math.max(100,Math.round(referenceSize*23)),lineRule:"exact"},
+              children:runs
+            }));
+          }
+        }
+        if(!paragraphs.length) paragraphs.push(new docx.Paragraph({text:""}));
+
+        const cellWidth=Math.max(120,Math.round((region.columns[c+1]-region.columns[c])*20));
+        docxCells.push(new docx.TableCell({
+          width:{size:cellWidth,type:"dxa"},
+          margins:{top:18,bottom:18,left:26,right:26},
+          verticalAlign:"center",
+          borders:{
+            top:{style:"single",size:4,color:"9A9A9A"},
+            bottom:{style:"single",size:4,color:"9A9A9A"},
+            left:{style:"single",size:4,color:"9A9A9A"},
+            right:{style:"single",size:4,color:"9A9A9A"}
+          },
+          children:paragraphs
+        }));
+      }
+
+      const rowHeight=Math.max(100,Math.round((region.rows[r+1]-region.rows[r])*20));
+      rows.push(new docx.TableRow({
+        height:{value:rowHeight,rule:"atLeast"},
+        cantSplit:true,
+        children:docxCells
+      }));
+    }
+
+    const columnWidths=region.columns.slice(0,-1).map((x,index)=>
+      Math.max(120,Math.round((region.columns[index+1]-x)*20))
+    );
+    const tableWidth=columnWidths.reduce((sum,value)=>sum+value,0);
+    const table=new docx.Table({
+      rows,
+      width:{size:tableWidth,type:"dxa"},
+      columnWidths,
+      layout:"fixed",
+      alignment:"left",
+      margins:{top:18,bottom:18,left:26,right:26},
+      borders:{
+        top:{style:"single",size:4,color:"8C8C8C"},
+        bottom:{style:"single",size:4,color:"8C8C8C"},
+        left:{style:"single",size:4,color:"8C8C8C"},
+        right:{style:"single",size:4,color:"8C8C8C"},
+        insideHorizontal:{style:"single",size:4,color:"A6A6A6"},
+        insideVertical:{style:"single",size:4,color:"A6A6A6"}
+      },
+      float:{
+        horizontalAnchor:"page",
+        verticalAnchor:"page",
+        absoluteHorizontalPosition:Math.round(region.x0*20),
+        absoluteVerticalPosition:Math.round(region.y0*20),
+        overlap:"overlap",
+        topFromText:0,
+        leftFromText:0
+      }
+    });
+    tables.push({region,table});
+  }
+
+  return {tables,excludedItems};
+}
+
 async function makePdfPageBackground(page, content, pageHeight, renderScale) {
   const viewport = page.getViewport({scale:renderScale});
   const canvas = document.createElement("canvas");
@@ -368,16 +754,39 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
   context.fillRect(0,0,canvas.width,canvas.height);
   await page.render({canvasContext:context,viewport}).promise;
 
-  // Capture the untouched pixels once so background/text-color sampling is
-  // unaffected by rectangles already masked on the canvas.
   const originalPixels = context.getImageData(0,0,canvas.width,canvas.height);
   const resolvedFonts = getResolvedPdfFonts(page,content);
+  let tableRegions=[];
+  try {
+    const operatorList=await page.getOperatorList();
+    tableRegions=detectPdfTableRegions(operatorList,pageHeight);
+  } catch (error) {
+    console.warn("Workspace could not detect ruled tables on this PDF page:",error);
+  }
+
+  const tableBlocks=buildPdfTableBlocks(
+    tableRegions,content,resolvedFonts,pageHeight,renderScale,originalPixels
+  );
   const built = buildEditableTextItems(
-    content,resolvedFonts,pageHeight,renderScale,originalPixels,context
+    content,resolvedFonts,pageHeight,renderScale,originalPixels,context,tableBlocks.excludedItems
   );
 
+  // The page artwork keeps genuine non-text graphics (such as a logo), but
+  // removes every detected table grid. Each grid is rebuilt below as a real
+  // Word table, not a flattened picture.
+  for(const region of tableRegions) {
+    const left=Math.max(0,Math.floor(region.x0*renderScale-1));
+    const top=Math.max(0,Math.floor(region.y0*renderScale-1));
+    const right=Math.min(canvas.width,Math.ceil(region.x1*renderScale+1));
+    const bottom=Math.min(canvas.height,Math.ceil(region.y1*renderScale+1));
+    if(right>left && bottom>top) {
+      context.fillStyle="#FFFFFF";
+      context.fillRect(left,top,right-left,bottom-top);
+    }
+  }
+
   const png = await new Promise((resolve,reject)=>{
-    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("Could not prepare the page artwork image.")),"image/png");
+    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("Could not prepare the non-text page artwork.")),"image/png");
   });
   const bytes = new Uint8Array(await png.arrayBuffer());
   const imageWidthPx = (page.getViewport({scale:1}).width*4)/3;
@@ -385,7 +794,7 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
 
   canvas.width=1;
   canvas.height=1;
-  return {bytes,built,imageWidthPx,imageHeightPx};
+  return {bytes,built,tables:tableBlocks.tables,imageWidthPx,imageHeightPx};
 }
 
 async function pdfToWordEditable(file) {
@@ -411,6 +820,7 @@ async function pdfToWordEditable(file) {
       const renderScale = Math.min(2.5,2500/Math.max(pageWidth,pageHeight));
       const background = await makePdfPageBackground(page,content,pageHeight,renderScale);
       const textParagraphs = [];
+      const editableTables = background.tables || [];
 
       for (const item of background.built.items) {
         const frameWidth = Math.max(24,Math.round((item.width+2.2)*20));
@@ -478,7 +888,7 @@ async function pdfToWordEditable(file) {
         },
         altText:{
           title:"Original PDF page "+pageNo+" artwork",
-          description:"Original page graphics, tables, rules and images with editable text areas cleared.",
+          description:"Non-text PDF artwork only; text is editable and table grids are rebuilt as native Word tables.",
           name:"PDF page "+pageNo+" artwork"
         }
       });
@@ -502,7 +912,7 @@ async function pdfToWordEditable(file) {
             margin:{top:0,right:0,bottom:0,left:0,header:0,footer:0}
           }
         },
-        children:[pageAnchor,...textParagraphs]
+        children:[pageAnchor,...textParagraphs,...editableTables.map(entry=>entry.table)]
       });
 
       page.cleanup();
@@ -519,7 +929,7 @@ async function pdfToWordEditable(file) {
   const document = new docx.Document({
     creator:"Workspace PDF",
     title:safeBaseName(file.name),
-    description:"Layout-aware conversion. Page graphics and tables are preserved as artwork; text is reinserted as individually editable positioned Word text.",
+    description:"Editable conversion. Text is recreated as Word text and detected ruled grids are rebuilt as native Word tables; only non-text page artwork remains as an image layer."
     sections
   });
   return await docx.Packer.toBlob(document);
