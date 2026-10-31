@@ -424,7 +424,7 @@ function detectPdfTableRegions(operatorList, pageHeight) {
       if (stateStack.length) matrix = stateStack.pop();
       continue;
     }
-    if (fn === OPS.transform && Array.isArray(args) && args.length >= 6) {
+    if (fn === OPS.transform && args && args.length >= 6) {
       matrix = multiplyPdfMatrices(matrix,args);
       continue;
     }
@@ -454,8 +454,6 @@ function detectPdfTableRegions(operatorList, pageHeight) {
         const y0 = Math.min(...ys), y1 = Math.max(...ys);
         const rectWidth = x1-x0, rectHeight = y1-y0;
 
-        // Ruled PDF tables are commonly represented as filled thin rectangles,
-        // rather than stroked line paths. Keep only long, near-axis-aligned bars.
         if (rectWidth <= 2.6 && rectHeight >= 7.5) {
           verticalSegments.push({
             position:(x0+x1)/2,
@@ -481,74 +479,103 @@ function detectPdfTableRegions(operatorList, pageHeight) {
     }
   }
 
-  const horizontal = mergePdfLineSegments(horizontalSegments,"h");
+  const horizontal = mergePdfLineSegments(horizontalSegments,"h")
+    .filter(line=>line.end-line.start>=65);
   const vertical = mergePdfLineSegments(verticalSegments,"v");
-  if (horizontal.length < 2 || vertical.length < 2) return [];
+  if (horizontal.length < 2 || vertical.length < 3) return [];
 
-  // Connected horizontal/vertical rule segments form independent table grids.
-  const total = horizontal.length + vertical.length;
-  const visited = new Set();
-  const components = [];
+  // A PDF may draw two adjacent tables with one shared/continuous vertical
+  // rule. Connected-component detection merges those tables incorrectly.
+  // Instead, compare the vertical-column signature at each horizontal rule.
+  const horizontalGroups=[];
+  for(const line of horizontal) {
+    let group=horizontalGroups.find(candidate =>
+      Math.abs(candidate.start-line.start)<=3 &&
+      Math.abs(candidate.end-line.end)<=3
+    );
+    if(!group) {
+      group={start:line.start,end:line.end,lines:[]};
+      horizontalGroups.push(group);
+    }
+    group.lines.push(line);
+  }
 
-  for (let seed=0;seed<total;seed++) {
-    if (visited.has(seed)) continue;
-    const queue=[seed];
-    visited.add(seed);
-    const hLines=[];
-    const vLines=[];
+  const candidates=[];
+  for(const group of horizontalGroups) {
+    group.lines.sort((a,b)=>a.position-b.position);
+    const lineData=group.lines.map(line=>{
+      const xs=vertical
+        .filter(v =>
+          v.position>=group.start-2 &&
+          v.position<=group.end+2 &&
+          v.start<=line.position+1.5 &&
+          v.end>=line.position-1.5
+        )
+        .map(v=>v.position)
+        .sort((a,b)=>a-b);
+      return {line,xs};
+    });
 
-    while(queue.length) {
-      const node=queue.shift();
-      if(node<horizontal.length) hLines.push(horizontal[node]);
-      else vLines.push(vertical[node-horizontal.length]);
+    const clusters=[];
+    for(const entry of lineData) {
+      const current=clusters[clusters.length-1];
+      let similarity=0;
+      if(current) {
+        const previous=current.entries[current.entries.length-1].xs;
+        const a=new Set(previous.map(x=>Math.round(x*2)/2));
+        const b=new Set(entry.xs.map(x=>Math.round(x*2)/2));
+        let intersection=0;
+        for(const value of a) if(b.has(value)) intersection++;
+        similarity=intersection/Math.max(1,a.size+b.size-intersection);
+      }
 
-      if(node<horizontal.length) {
-        const h=horizontal[node];
-        for(let j=0;j<vertical.length;j++) {
-          const v=vertical[j];
-          if(
-            v.position>=h.start-1.5 &&
-            v.position<=h.end+1.5 &&
-            h.position>=v.start-1.5 &&
-            h.position<=v.end+1.5
-          ) {
-            const next=horizontal.length+j;
-            if(!visited.has(next)) { visited.add(next); queue.push(next); }
-          }
-        }
+      if(
+        !current ||
+        similarity<0.58 ||
+        entry.line.position-current.entries[current.entries.length-1].line.position>75
+      ) {
+        clusters.push({entries:[entry]});
       } else {
-        const v=vertical[node-horizontal.length];
-        for(let j=0;j<horizontal.length;j++) {
-          const h=horizontal[j];
-          if(
-            v.position>=h.start-1.5 &&
-            v.position<=h.end+1.5 &&
-            h.position>=v.start-1.5 &&
-            h.position<=v.end+1.5 &&
-            !visited.has(j)
-          ) { visited.add(j); queue.push(j); }
-        }
+        current.entries.push(entry);
       }
     }
 
-    if(hLines.length<2 || vLines.length<3) continue;
-    const xs=[...new Set(vLines.map(line=>Math.round(line.position*2)/2))].sort((a,b)=>a-b);
-    const ys=[...new Set(hLines.map(line=>Math.round(line.position*2)/2))].sort((a,b)=>a-b);
-    if(xs.length<3 || ys.length<2) continue;
-    const x0=xs[0], x1=xs[xs.length-1], y0=ys[0], y1=ys[ys.length-1];
-    if(x1-x0<65 || y1-y0<15) continue;
+    for(const cluster of clusters) {
+      if(cluster.entries.length<2) continue;
+      const ys=cluster.entries.map(entry=>entry.line.position).sort((a,b)=>a-b);
+      const y0=ys[0], y1=ys[ys.length-1];
+      if(y1-y0<15) continue;
 
-    components.push({
-      x0,x1,y0,y1,
-      columns:xs,
-      rows:ys
-    });
+      const relevantVerticals=vertical.filter(v=>{
+        const overlap=Math.max(0,Math.min(v.end,y1)-Math.max(v.start,y0));
+        return (
+          v.position>=group.start-2 &&
+          v.position<=group.end+2 &&
+          overlap/Math.max(1,y1-y0)>=0.62
+        );
+      });
+
+      const xs=[];
+      for(const v of relevantVerticals) {
+        if(!xs.some(x=>Math.abs(x-v.position)<1.5)) xs.push(v.position);
+      }
+      xs.sort((a,b)=>a-b);
+      if(xs.length<3 || xs[xs.length-1]-xs[0]<65) continue;
+
+      candidates.push({
+        x0:xs[0],
+        x1:xs[xs.length-1],
+        y0,
+        y1,
+        columns:xs,
+        rows:ys
+      });
+    }
   }
 
-  // Remove nested/duplicate candidates caused by repeated shaded grid rules.
-  components.sort((a,b)=>(a.y0-b.y0)||(a.x0-b.x0));
+  candidates.sort((a,b)=>(a.y0-b.y0)||(a.x0-b.x0));
   const regions=[];
-  for(const candidate of components) {
+  for(const candidate of candidates) {
     const duplicate=regions.some(region =>
       Math.abs(region.x0-candidate.x0)<2 &&
       Math.abs(region.x1-candidate.x1)<2 &&
