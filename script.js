@@ -640,8 +640,8 @@ let officeEngine = null;
 let officeEnginePromise = null;
 let officeWorkerBlobUrl = null;
 
-const OFFICE_WASM_BASE = "https://erseco.github.io/libreoffice-document-converter/wasm/";
-const OFFICE_WORKER_BUNDLE = "https://cdn.jsdelivr.net/npm/@matbee/libreoffice-converter@2.6.0/dist/browser.worker.global.js";
+const OFFICE_WASM_BASE = "https://matbeedotcom.github.io/libreoffice-document-converter/wasm/";
+const OFFICE_WORKER_BUNDLE = "https://cdn.jsdelivr.net/npm/@matbee/libreoffice-converter@2.7.2/dist/browser.worker.global.js";
 
 async function getLibreOfficeEngine() {
   if (officeEngine) return officeEngine;
@@ -660,7 +660,7 @@ async function getLibreOfficeEngine() {
       setProgress(8, "Loading the private LibreOffice conversion engine…");
 
       const [library, workerResponse] = await Promise.all([
-        import("https://esm.sh/@matbee/libreoffice-converter@2.6.0/browser?bundle"),
+        import("https://esm.sh/@matbee/libreoffice-converter@2.7.2/browser?bundle"),
         fetch(OFFICE_WORKER_BUNDLE, { mode: "cors", cache: "force-cache" })
       ]);
 
