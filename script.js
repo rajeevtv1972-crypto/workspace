@@ -584,42 +584,168 @@ async function jpgToPDF(files) {
   return new Blob([await output.save({useObjectStreams:true})],{type:"application/pdf"});
 }
 function sanitizeMammothHtml(html) {
-  const parsed=new DOMParser().parseFromString(html,"text/html");
-  parsed.querySelectorAll("script,style,iframe,object,embed,form,video,audio,link,meta").forEach(el=>el.remove());
-  parsed.body.querySelectorAll("*").forEach(el=>{
-    [...el.attributes].forEach(attr=>{
-      if (attr.name==="src" && el.tagName==="IMG" && attr.value.startsWith("data:image/")) return;
-      el.removeAttribute(attr.name);
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  parsed.querySelectorAll("script,style,iframe,object,embed,form,video,audio,link,meta,svg,math").forEach(el => el.remove());
+
+  const safeStyleProperties = new Set([
+    "color","background-color","font-family","font-size","font-weight","font-style",
+    "text-align","text-decoration","vertical-align","white-space","line-height",
+    "margin","margin-left","margin-right","margin-top","margin-bottom",
+    "padding","padding-left","padding-right","padding-top","padding-bottom",
+    "width","height","max-width","border","border-collapse","border-width",
+    "border-style","border-color","list-style-type","direction"
+  ]);
+
+  parsed.body.querySelectorAll("*").forEach(element => {
+    [...element.attributes].forEach(attribute => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value || "";
+
+      if (name.startsWith("on") || name === "srcset" || name === "formaction") {
+        element.removeAttribute(attribute.name);
+        return;
+      }
+      if (name === "src" && element.tagName === "IMG" && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(value)) return;
+      if (name === "href" && element.tagName === "A" && /^(https?:|mailto:|#)/i.test(value)) return;
+      if (name === "style") {
+        const safeRules = value.split(";").map(rule => rule.trim()).filter(Boolean).map(rule => {
+          const colon = rule.indexOf(":");
+          if (colon < 1) return "";
+          const property = rule.slice(0, colon).trim().toLowerCase();
+          const cssValue = rule.slice(colon + 1).trim();
+          if (!safeStyleProperties.has(property) || /url\s*\(|expression\s*\(|javascript:|@import|behavior\s*:/i.test(cssValue)) return "";
+          return property + ":" + cssValue;
+        }).filter(Boolean);
+        if (safeRules.length) element.setAttribute("style", safeRules.join(";"));
+        else element.removeAttribute("style");
+        return;
+      }
+      if (["colspan","rowspan","width","height","align","valign","alt","title","class"].includes(name)) {
+        if (["width","height","colspan","rowspan"].includes(name) && !/^\d{1,5}(px|pt|%)?$/.test(value)) {
+          element.removeAttribute(attribute.name);
+        }
+        return;
+      }
+      element.removeAttribute(attribute.name);
     });
-    if (el.tagName==="IMG" && !el.getAttribute("src")) el.remove();
+
+    if (element.tagName === "IMG") {
+      const src = element.getAttribute("src") || "";
+      if (!src.startsWith("data:image/")) element.remove();
+      else {
+        element.removeAttribute("width");
+        element.style.maxWidth = "100%";
+        element.style.height = "auto";
+      }
+    }
   });
   return parsed.body.innerHTML;
 }
+
+async function waitForDocumentImages(container) {
+  const images = [...container.querySelectorAll("img")];
+  await Promise.all(images.map(async image => {
+    if (image.complete && image.naturalWidth > 0) return;
+    if (typeof image.decode === "function") {
+      try { await image.decode(); return; } catch (_) {}
+    }
+    await new Promise(resolve => {
+      const done = () => resolve();
+      image.addEventListener("load", done, { once: true });
+      image.addEventListener("error", done, { once: true });
+      setTimeout(done, 8000);
+    });
+  }));
+  const broken = images.filter(image => !image.naturalWidth);
+  broken.forEach(image => image.remove());
+}
+
 async function wordToPDF(file) {
-  if (!window.mammoth || !window.html2pdf) throw new Error("The Word-to-PDF libraries could not load. Refresh the page and try again.");
-  setProgress(15,"Reading the Word document locally…");
-  const result=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
-  if (!result.value.trim()) throw new Error("No readable document content was found in this DOCX file.");
-  const container=document.createElement("div");
-  container.className="word-export-sheet";
-  container.innerHTML=sanitizeMammothHtml(result.value);
-  document.body.appendChild(container);
+  if (!window.mammoth) throw new Error("The Word reader library did not load. Refresh the page and try again.");
+  if (!window.html2pdf) throw new Error("The PDF generator did not load. Refresh the page and try again.");
+  if (file.size > 25 * 1024 * 1024) throw new Error("Word-to-PDF currently supports DOCX files up to 25 MB.");
+
+  setProgress(10, "Opening your Word document locally…");
+  const arrayBuffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuffer);
+  if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+    throw new Error("This file is not a valid DOCX document. Please choose a .docx file (not the older .doc format).");
+  }
+
+  let result;
   try {
-    setProgress(45,"Laying out your Word document as PDF…");
-    const worker=html2pdf().set({
-      margin:[12,12,12,12],
-      image:{type:"jpeg",quality:0.94},
-      html2canvas:{scale:1.6,useCORS:false,backgroundColor:"#ffffff",logging:false},
-      jsPDF:{unit:"mm",format:"a4",orientation:"portrait"},
-      pagebreak:{mode:["css","legacy"]}
-    }).from(container);
-    const blob=await worker.outputPdf("blob");
-    setProgress(95,"Finishing your PDF…");
+    result = await mammoth.convertToHtml({ arrayBuffer }, {
+      includeDefaultStyleMap: true,
+      convertImage: mammoth.images.imgElement(image => image.read("base64").then(imageBuffer => ({
+        src: "data:" + image.contentType + ";base64," + imageBuffer
+      })))
+    });
+  } catch (error) {
+    throw new Error("We couldn't read this Word document. It may be damaged or use unsupported content.");
+  }
+
+  if (!result || !result.value || !result.value.trim()) {
+    throw new Error("No readable content was found in this Word document.");
+  }
+
+  const container = document.createElement("div");
+  container.className = "word-export-sheet";
+  container.innerHTML = sanitizeMammothHtml(result.value);
+
+  if (!container.textContent.trim() && !container.querySelector("img,table")) {
+    throw new Error("This Word document has no content that can be exported.");
+  }
+
+  // Keep the temporary render surface within the viewport. It sits behind
+  // the converter overlay while html2pdf clones and rasterizes it.
+  container.setAttribute("aria-hidden", "true");
+  document.body.appendChild(container);
+
+  try {
+    await waitForDocumentImages(container);
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+    setProgress(48, "Preparing the Word pages for PDF…");
+    const options = {
+      margin: [12, 12, 12, 12],
+      image: { type: "jpeg", quality: 0.95 },
+      html2canvas: {
+        scale: 1.45,
+        useCORS: false,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: Math.max(document.documentElement.clientWidth, 1000),
+        removeContainer: true
+      },
+      jsPDF: { unit: "mm", format: "a4", orientation: "portrait", compress: true },
+      pagebreak: { mode: ["css", "legacy"], avoid: ["tr", "img", "pre", "blockquote"] }
+    };
+
+    setProgress(62, "Rendering your Word document…");
+    const worker = html2pdf().set(options).from(container).toPdf();
+    const pdfDocument = await worker.get("pdf");
+    if (!pdfDocument || typeof pdfDocument.output !== "function") {
+      throw new Error("The PDF renderer could not create a PDF document. Please try again.");
+    }
+
+    const blob = pdfDocument.output("blob");
+    if (!(blob instanceof Blob) || blob.size < 100 || blob.type !== "application/pdf") {
+      throw new Error("The PDF renderer returned an empty or invalid file. Please try another DOCX document.");
+    }
+
+    setProgress(96, "Finishing your PDF download…");
     return blob;
+  } catch (error) {
+    if (error && error.message) throw error;
+    throw new Error("Word-to-PDF rendering failed in this browser. Try a smaller DOCX file or remove unusually large images.");
   } finally {
     container.remove();
   }
 }
+
 async function ocrPDF(file) {
   if (!window.Tesseract) throw new Error("The OCR library could not load. Refresh the page and try again.");
   const { PDFDocument, StandardFonts } = getPDFLib();
