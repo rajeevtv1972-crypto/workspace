@@ -258,18 +258,23 @@ function sampleLocalBackground(imageData, rect) {
   const {data,width,height} = imageData;
   const cx = (rect.left+rect.right)/2;
   const cy = (rect.top+rect.bottom)/2;
-  const gap = Math.max(2,Math.min(6,Math.round(Math.min(rect.width,rect.height)*0.25)));
-  const points = [
-    [cx,rect.top-gap],[cx,rect.bottom+gap],
-    [rect.left-gap,cy],[rect.right+gap,cy],
-    [rect.left-gap,rect.top-gap],[rect.right+gap,rect.top-gap],
-    [rect.left-gap,rect.bottom+gap],[rect.right+gap,rect.bottom+gap]
-  ];
-  const samples = points.map(([x,y])=>sampleCanvasPixel(data,width,height,x,y)).filter(p=>p[3]>180);
+  // Sample a ring outside the text rectangle so thin table borders and
+  // anti-aliased glyph edges do not become the fill color of the cleared area.
+  const gap = Math.max(8,Math.min(16,Math.round(Math.min(rect.width,rect.height)*0.22)));
+  const samples = [];
+  const fractions = [0.08,0.2,0.35,0.5,0.65,0.8,0.92];
+  for (const fraction of fractions) {
+    samples.push(sampleCanvasPixel(data,width,height,rect.left+(rect.width*fraction),rect.top-gap));
+    samples.push(sampleCanvasPixel(data,width,height,rect.left+(rect.width*fraction),rect.bottom+gap));
+    samples.push(sampleCanvasPixel(data,width,height,rect.left-gap,rect.top+(rect.height*fraction)));
+    samples.push(sampleCanvasPixel(data,width,height,rect.right+gap,rect.top+(rect.height*fraction)));
+  }
+  const usable = samples.filter(pixel=>pixel[3]>180);
+  if (!usable.length) return [255,255,255];
   return [
-    medianChannel(samples.map(p=>p[0])),
-    medianChannel(samples.map(p=>p[1])),
-    medianChannel(samples.map(p=>p[2]))
+    medianChannel(usable.map(pixel=>pixel[0])),
+    medianChannel(usable.map(pixel=>pixel[1])),
+    medianChannel(usable.map(pixel=>pixel[2]))
   ];
 }
 
