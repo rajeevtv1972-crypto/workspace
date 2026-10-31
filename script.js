@@ -287,7 +287,7 @@ function groupPdfTextIntoLines(items, styles, resolvedFonts, pageHeight, annotat
     .map(item => {
       const matrix = item.transform || [0,0,0,0,0,0];
       const font = getPdfTextStyle(item, styles, resolvedFonts);
-      const baseline = pageHeight - matrix[5];
+      const baseline = pageHeight - (matrix[5] - pageView[1]);
       const left = matrix[4] - pageView[0];
       const width = Math.max(0, item.width || font.size * item.str.length * 0.48);
       const top = Math.max(0, baseline - font.size * 0.88);
