@@ -136,7 +136,7 @@ function validateFiles(files) {
     const ext = fileExtension(file.name);
     const allowed = config.kind === "pdf" ? ext === "pdf" : config.kind === "docx" ? ext === "docx" : ["jpg", "jpeg", "png"].includes(ext);
     if (!allowed) return activeTool === "Word to PDF" ? "Please choose a DOCX Word document." : config.kind === "image" ? "Please choose JPG or PNG images." : "Please choose a PDF file.";
-    const maxSize = activeTool === "OCR PDF" ? 20 * 1024 * 1024 : activeTool === "JPG to PDF" ? 15 * 1024 * 1024 : 20 * 1024 * 1024;
+    const maxSize = activeTool === "OCR PDF" ? 20 * 1024 * 1024 : activeTool === "JPG to PDF" ? 15 * 1024 * 1024 : activeTool === "Word to PDF" ? 25 * 1024 * 1024 : 20 * 1024 * 1024;
     if (file.size > maxSize) return "One of the selected files is too large. Please choose smaller files.";
     if (!file.size) return "One of the selected files is empty.";
   }
