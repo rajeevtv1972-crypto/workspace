@@ -44,3 +44,9 @@
 .word-export-sheet h1,.word-export-sheet h2,.word-export-sheet h3,.word-export-sheet h4{font-family:Arial,sans-serif;line-height:1.25;break-after:avoid-page;page-break-after:avoid}
 .word-export-sheet h1{font-size:27px;margin:0 0 18px}.word-export-sheet h2{font-size:22px;margin:18px 0 12px}.word-export-sheet h3{font-size:18px;margin:15px 0 9px}
 .word-export-sheet p{margin:0 0 10px;orphans:2;widows:2}.word-export-sheet table{width:100%;max-width:100%;border-collapse:collapse;table-layout:auto;margin:10px 0;break-inside:auto}.word-export-sheet tr{break-inside:avoid;page-break-inside:avoid}.word-export-sheet td,.word-export-sheet th{border:1px solid #999;padding:6px;vertical-align:top}.word-export-sheet ul,.word-export-sheet ol{padding-left:26px;margin:8px 0}.word-export-sheet li{margin:0 0 5px}.word-export-sheet blockquote{margin:12px 24px;padding-left:14px;border-left:3px solid #cbd3e2;color:#46516a}.word-export-sheet img{display:inline-block;max-width:100%;height:auto;object-fit:contain}.word-export-sheet a{color:#2455a4;text-decoration:underline}
+
+/* Temporary DOCX rendering stage used by the local Word-to-PDF exporter. */
+.word-pdf-render-stage{position:fixed;left:0;top:0;width:100vw;max-height:100vh;overflow:auto;z-index:59;pointer-events:none;background:#e9edf5;padding:14px;box-sizing:border-box}
+.word-pdf-render-stage .docx-wrapper{display:flex;flex-direction:column;align-items:center;gap:14px;padding:0!important;background:transparent!important}
+.word-pdf-render-stage section.docx{margin:0 auto!important;box-shadow:0 8px 24px rgba(24,38,70,.16)}
+.word-pdf-render-stage img{max-width:100%}
