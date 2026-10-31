@@ -845,6 +845,8 @@ async function wordToPDF(file) {
       debug: false
     });
 
+    // Let page dimensions, anchored drawings and VML/SVG geometry settle.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await waitForDocumentImages(bodyContainer);
     if (document.fonts?.ready) await document.fonts.ready;
 
@@ -864,11 +866,17 @@ async function wordToPDF(file) {
       const pageBlob = await createPdfFromRenderedWordPage(pageElements[i], i + 1);
       const pageBytes = new Uint8Array(await pageBlob.arrayBuffer());
       const pagePdf = await PDFDocument.load(pageBytes);
+      if (pagePdf.getPageCount() !== 1) {
+        throw new Error("Word page " + (i + 1) + " unexpectedly rendered as " + pagePdf.getPageCount() + " PDF pages. Please try the document again.");
+      }
       const copiedPages = await outputPdf.copyPages(pagePdf, pagePdf.getPageIndices());
       copiedPages.forEach(page => outputPdf.addPage(page));
       setProgress(55 + ((i + 1) / pageElements.length) * 38, "Assembling PDF page " + (i + 1) + " of " + pageElements.length + "…");
     }
 
+    if (outputPdf.getPageCount() !== pageElements.length) {
+      throw new Error("The final PDF page count does not match the original Word document.");
+    }
     const finalBytes = await outputPdf.save({ useObjectStreams: true });
     const finalBlob = new Blob([finalBytes], { type: "application/pdf" });
     if (finalBlob.size < 1000) {
