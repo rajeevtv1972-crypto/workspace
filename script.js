@@ -46,7 +46,7 @@ const uploadHint = document.getElementById("uploadHint");
 const chooseFileButton = document.getElementById("chooseFile");
 
 const TOOL_CONFIG = {
-  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Convert PDF text into editable Word text and rebuild detected table grids as real editable Word tables.", button: "Convert to Word" },
+  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Rebuild PDF text as editable Word text and ruled grids as actual Word tables. Only original embedded images stay as pictures.", button: "Convert to Word" },
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
@@ -780,6 +780,147 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
   return {tables,excludedItems};
 }
 
+async function getPdfObjectAsync(store, objectId) {
+  if(!store || !objectId) return null;
+  return await new Promise(resolve=>{
+    let settled=false;
+    const finish=value=>{
+      if(settled) return;
+      settled=true;
+      resolve(value||null);
+    };
+    try {
+      const value=store.get(objectId,finish);
+      if(value!==undefined && value!==null) finish(value);
+    } catch (_) {
+      try {
+        const value=store.get(objectId);
+        finish(value);
+      } catch (_) {
+        finish(null);
+      }
+    }
+  });
+}
+
+async function pdfImageObjectToPng(imageObject) {
+  if(!imageObject) return null;
+  const width=Number(imageObject.width);
+  const height=Number(imageObject.height);
+  if(!Number.isFinite(width)||!Number.isFinite(height)||width<1||height<1||width*height>16000000) return null;
+
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.floor(width);
+  canvas.height=Math.floor(height);
+  const context=canvas.getContext("2d",{alpha:true});
+  if(!context) return null;
+
+  // Prefer a decoded bitmap/image when PDF.js has already produced one.
+  const bitmap=imageObject.bitmap || imageObject.canvas || imageObject.image;
+  if(bitmap && typeof context.drawImage==="function") {
+    try {
+      context.drawImage(bitmap,0,0,width,height);
+    } catch (_) {}
+  }
+
+  if(!context.getImageData(0,0,1,1).data.some(value=>value!==0) && imageObject.data) {
+    const raw=imageObject.data instanceof Uint8Array || imageObject.data instanceof Uint8ClampedArray
+      ? imageObject.data
+      : null;
+    if(raw) {
+      const pixelCount=width*height;
+      let rgba=null;
+      if(raw.length===pixelCount*4) {
+        rgba=new Uint8ClampedArray(raw);
+      } else if(raw.length===pixelCount*3) {
+        rgba=new Uint8ClampedArray(pixelCount*4);
+        for(let i=0,j=0;i<raw.length;i+=3,j+=4) {
+          rgba[j]=raw[i]; rgba[j+1]=raw[i+1]; rgba[j+2]=raw[i+2]; rgba[j+3]=255;
+        }
+      } else if(raw.length===pixelCount) {
+        rgba=new Uint8ClampedArray(pixelCount*4);
+        for(let i=0,j=0;i<raw.length;i++,j+=4) {
+          rgba[j]=raw[i]; rgba[j+1]=raw[i]; rgba[j+2]=raw[i]; rgba[j+3]=255;
+        }
+      }
+      if(rgba) {
+        context.putImageData(new ImageData(rgba,Math.floor(width),Math.floor(height)),0,0);
+      }
+    }
+  }
+
+  const pixels=context.getImageData(0,0,1,1).data;
+  if(!imageObject.bitmap && !imageObject.canvas && !imageObject.image && !imageObject.data) {
+    canvas.width=1; canvas.height=1;
+    return null;
+  }
+  const png=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));
+  canvas.width=1; canvas.height=1;
+  if(!png) return null;
+  return new Uint8Array(await png.arrayBuffer());
+}
+
+async function extractPdfImageBlocks(page, operatorList, pageHeight) {
+  const OPS=pdfjsLib.OPS;
+  if(!OPS) return [];
+  const stack=[];
+  let matrix=[1,0,0,1,0,0];
+  const paints=[];
+  const seen=new Set();
+
+  for(let i=0;i<operatorList.fnArray.length;i++) {
+    const fn=operatorList.fnArray[i];
+    const args=operatorList.argsArray[i]||[];
+    if(fn===OPS.save) { stack.push(matrix.slice()); continue; }
+    if(fn===OPS.restore) { if(stack.length) matrix=stack.pop(); continue; }
+    if(fn===OPS.transform && args.length>=6) {
+      matrix=multiplyPdfMatrices(matrix,args);
+      continue;
+    }
+
+    const isImage=fn===OPS.paintImageXObject ||
+      fn===OPS.paintJpegXObject ||
+      fn===OPS.paintInlineImageXObject;
+    if(!isImage) continue;
+
+    const objectId=args[0];
+    const object=objectId && typeof objectId==="string"
+      ? await getPdfObjectAsync(page.objs,objectId) || await getPdfObjectAsync(page.commonObjs,objectId)
+      : objectId;
+    if(!object) continue;
+
+    const key=(typeof objectId==="string"?objectId:"inline-"+i);
+    if(seen.has(key)) continue;
+    seen.add(key);
+
+    const p1=transformPdfPoint(matrix,0,0);
+    const p2=transformPdfPoint(matrix,1,0);
+    const p3=transformPdfPoint(matrix,1,1);
+    const p4=transformPdfPoint(matrix,0,1);
+    const xs=[p1[0],p2[0],p3[0],p4[0]];
+    const ys=[p1[1],p2[1],p3[1],p4[1]];
+    const x0=Math.min(...xs),x1=Math.max(...xs);
+    const y0=Math.min(...ys),y1=Math.max(...ys);
+    if(x1-x0<2 || y1-y0<2) continue;
+
+    // PDF.js images are painted in a unit square under the current transform.
+    // Rotated/sheared images are skipped rather than placed incorrectly.
+    const axisAligned=Math.abs(matrix[1])<0.8 && Math.abs(matrix[2])<0.8;
+    if(!axisAligned) continue;
+
+    const bytes=await pdfImageObjectToPng(object);
+    if(!bytes || bytes.length<40) continue;
+    paints.push({
+      bytes,
+      x:x0,
+      y:pageHeight-y1,
+      width:x1-x0,
+      height:y1-y0
+    });
+  }
+  return paints;
+}
+
 async function makePdfPageBackground(page, content, pageHeight, renderScale) {
   const viewport = page.getViewport({scale:renderScale});
   const canvas = document.createElement("canvas");
@@ -794,46 +935,23 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
 
   const originalPixels = context.getImageData(0,0,canvas.width,canvas.height);
   const resolvedFonts = getResolvedPdfFonts(page,content);
-  let tableRegions=[];
-  try {
-    const operatorList=await page.getOperatorList();
-    tableRegions=detectPdfTableRegions(operatorList,pageHeight);
-  } catch (error) {
-    console.warn("Workspace could not detect ruled tables on this PDF page:",error);
-  }
-
+  const operatorList=await page.getOperatorList();
+  const tableRegions=detectPdfTableRegions(operatorList,pageHeight);
   const tableBlocks=buildPdfTableBlocks(
     tableRegions,content,resolvedFonts,pageHeight,renderScale,originalPixels
   );
-  const built = buildEditableTextItems(
+  const built=buildEditableTextItems(
     content,resolvedFonts,pageHeight,renderScale,originalPixels,context,tableBlocks.excludedItems
   );
+  const images=await extractPdfImageBlocks(page,operatorList,pageHeight);
 
-  // The page artwork keeps genuine non-text graphics (such as a logo), but
-  // removes every detected table grid. Each grid is rebuilt below as a real
-  // Word table, not a flattened picture.
-  for(const region of tableRegions) {
-    const left=Math.max(0,Math.floor(region.x0*renderScale-1));
-    const top=Math.max(0,Math.floor(region.y0*renderScale-1));
-    const right=Math.min(canvas.width,Math.ceil(region.x1*renderScale+1));
-    const bottom=Math.min(canvas.height,Math.ceil(region.y1*renderScale+1));
-    if(right>left && bottom>top) {
-      context.fillStyle="#FFFFFF";
-      context.fillRect(left,top,right-left,bottom-top);
-    }
-  }
-
-  const png = await new Promise((resolve,reject)=>{
-    canvas.toBlob(blob=>blob?resolve(blob):reject(new Error("Could not prepare the non-text page artwork.")),"image/png");
-  });
-  const bytes = new Uint8Array(await png.arrayBuffer());
-  const imageWidthPx = (page.getViewport({scale:1}).width*4)/3;
-  const imageHeightPx = (page.getViewport({scale:1}).height*4)/3;
-
+  // The rendered canvas is used only for text colour sampling. It is never
+  // embedded as a page-sized picture in Word.
   canvas.width=1;
   canvas.height=1;
-  return {bytes,built,tables:tableBlocks.tables,imageWidthPx,imageHeightPx};
+  return {built,tables:tableBlocks.tables,images};
 }
+
 
 async function pdfToWordEditable(file) {
   if (!window.docx) throw new Error("The Word generator could not load. Refresh the page and try again.");
@@ -900,44 +1018,37 @@ async function pdfToWordEditable(file) {
       }
 
       totalTextItems += (content.items || []).filter(item => item && typeof item.str === "string" && item.str.trim()).length;
-      const pageImage = new docx.ImageRun({
-        type:"png",
-        data:background.bytes,
-        transformation:{
-          width:background.imageWidthPx,
-          height:background.imageHeightPx
-        },
-        floating:{
-          horizontalPosition:{
-            relative:"page",
-            offset:0
+      const imageParagraphs=[];
+      for(const image of background.images||[]) {
+        const imageRun=new docx.ImageRun({
+          type:"png",
+          data:image.bytes,
+          transformation:{
+            width:Math.max(1,image.width*4/3),
+            height:Math.max(1,image.height*4/3)
           },
-          verticalPosition:{
-            relative:"page",
-            offset:0
+          floating:{
+            horizontalPosition:{relative:"page",offset:Math.round(image.x*12700)},
+            verticalPosition:{relative:"page",offset:Math.round(image.y*12700)},
+            behindDocument:false,
+            allowOverlap:true,
+            wrap:{type:0,side:"bothSides"},
+            zIndex:5
           },
-          behindDocument:true,
-          allowOverlap:true,
-          wrap:{
-            type:0,
-            side:"bothSides"
-          },
-          zIndex:0
-        },
-        altText:{
-          title:"Original PDF page "+pageNo+" artwork",
-          description:"Non-text PDF artwork only; text is editable and table grids are rebuilt as native Word tables.",
-          name:"PDF page "+pageNo+" artwork"
-        }
-      });
+          altText:{
+            title:"Embedded PDF image",
+            description:"An original image object extracted from the PDF.",
+            name:"PDF embedded image"
+          }
+        });
+        imageParagraphs.push(new docx.Paragraph({
+          spacing:{before:0,after:0,line:1,lineRule:docx.LineRuleType.EXACT},
+          children:[imageRun]
+        }));
+      }
 
-      // A floating page image preserves non-text artwork. Each extracted text
-      // span is then reinserted as a separately editable, absolutely positioned
-      // Word text frame at its original PDF coordinates.
-      const pageAnchor = new docx.Paragraph({
-        spacing:{before:0,after:0,line:1,lineRule:docx.LineRuleType.EXACT},
-        children:[pageImage]
-      });
+      // Text, tables and genuine embedded images are independent Word objects.
+      // There is no full-page screenshot behind the editable content.
 
       sections.push({
         properties:{
@@ -950,7 +1061,7 @@ async function pdfToWordEditable(file) {
             margin:{top:0,right:0,bottom:0,left:0,header:0,footer:0}
           }
         },
-        children:[pageAnchor,...textParagraphs,...editableTables.map(entry=>entry.table)]
+        children:[...imageParagraphs,...textParagraphs,...editableTables.map(entry=>entry.table)]
       });
 
       page.cleanup();
@@ -967,7 +1078,7 @@ async function pdfToWordEditable(file) {
   const document = new docx.Document({
     creator:"Workspace PDF",
     title:safeBaseName(file.name),
-    description:"Editable conversion. Text is recreated as Word text and detected ruled grids are rebuilt as native Word tables; only non-text page artwork remains as an image layer.",
+    description:"Fully editable conversion. Text and ruled tables are recreated as Word objects; only genuine embedded PDF images remain pictures.",
     sections
   });
   return await docx.Packer.toBlob(document);
