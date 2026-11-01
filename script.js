@@ -1204,7 +1204,7 @@ function makeFlowTextParagraph(line) {
 
   for(const item of items) {
     if(previousRight===null) {
-      runs.push(new docx.TextRun({text:"\\t"}));
+      runs.push(new docx.TextRun({text:"\t"}));
       tabStops.push({
         type:docx.TabStopType?.LEFT || "left",
         position:Math.max(120,Math.round(item.x*20))
@@ -1212,7 +1212,7 @@ function makeFlowTextParagraph(line) {
     } else {
       const gap=item.x-previousRight;
       if(gap>Math.max(8,item.font.size*0.7)) {
-        runs.push(new docx.TextRun({text:"\\t"}));
+        runs.push(new docx.TextRun({text:"\t"}));
         tabStops.push({
           type:docx.TabStopType?.LEFT || "left",
           position:Math.max(120,Math.round(item.x*20))
@@ -1248,7 +1248,7 @@ function makeFlowTextParagraph(line) {
     spacing:{
       before:0,
       after:0,
-      line:Math.max(100,Math.round(line.fontSize*24)),
+      line:Math.max(100,Math.round(line.fontSize*21)),
       lineRule:"atLeast"
     },
     children:runs
@@ -1319,7 +1319,10 @@ async function pdfToWordEditable(file) {
       totalNativeTables+=editableTables.length;
       totalTextItems+=(content.items||[]).filter(item=>item&&typeof item.str==="string"&&item.str.trim()).length;
 
-      const lines=groupEditableItemsIntoLines(background.built.items);
+      const lines=groupEditableItemsIntoLines(background.built.items)
+        .filter(line => !/\\bpage\\s+\\d+\\s+of\\s+\\d+\\b/i.test(
+          line.items.map(item=>item.text).join(" ")
+        ));
       const blocks=[
         ...lines.map(line=>({type:"line",top:line.top,bottom:line.bottom,line})),
         ...editableTables.map(entry=>({
