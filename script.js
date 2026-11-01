@@ -1108,21 +1108,28 @@ function makeFlowTextParagraph(line) {
   const items=[...line.items].sort((a,b)=>a.x-b.x);
   if(!items.length) return null;
 
-  const firstX=Math.max(0,items[0].x);
   const runs=[];
   const tabStops=[];
   let previousRight=null;
 
   for(const item of items) {
-    const gap=previousRight===null?0:item.x-previousRight;
-    if(previousRight!==null && gap>Math.max(8,item.font.size*0.7)) {
+    if(previousRight===null) {
       runs.push(new docx.TextRun({text:"\\t"}));
       tabStops.push({
         type:docx.TabStopType?.LEFT || "left",
-        position:Math.max(120,Math.round((item.x-firstX)*20))
+        position:Math.max(120,Math.round(item.x*20))
       });
-    } else if(previousRight!==null && gap>Math.max(1.5,item.font.size*0.12)) {
-      runs.push(new docx.TextRun({text:" "}));
+    } else {
+      const gap=item.x-previousRight;
+      if(gap>Math.max(8,item.font.size*0.7)) {
+        runs.push(new docx.TextRun({text:"\\t"}));
+        tabStops.push({
+          type:docx.TabStopType?.LEFT || "left",
+          position:Math.max(120,Math.round(item.x*20))
+        });
+      } else if(gap>Math.max(1.5,item.font.size*0.12)) {
+        runs.push(new docx.TextRun({text:" "}));
+      }
     }
 
     runs.push(new docx.TextRun({
@@ -1147,7 +1154,6 @@ function makeFlowTextParagraph(line) {
   }
 
   return new docx.Paragraph({
-    indent:{left:Math.round(firstX*20)},
     tabStops:uniqueTabs,
     spacing:{
       before:0,
