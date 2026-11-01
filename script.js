@@ -844,7 +844,13 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
           width:chunk.geometry.width*renderScale+1.2,
           height:chunk.geometry.height*renderScale+1.2
         };
-        applyPdfMarkupToFont(chunk.geometry.font,inkBox,annotationBoxes);
+        const annotationBox={
+          left:chunk.geometry.x,
+          top:chunk.geometry.y,
+          right:chunk.geometry.x+chunk.geometry.width,
+          bottom:chunk.geometry.y+chunk.geometry.height
+        };
+        applyPdfMarkupToFont(chunk.geometry.font,annotationBox,annotationBoxes);
         cells[row][col].push({
           item:{...item,str:chunk.text},
           geometry:chunk.geometry,
