@@ -46,7 +46,7 @@ const uploadHint = document.getElementById("uploadHint");
 const chooseFileButton = document.getElementById("chooseFile");
 
 const TOOL_CONFIG = {
-  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Rebuild PDF text as editable Word text and ruled grids as actual Word tables. Only original embedded images stay as pictures.", button: "Convert to Word" },
+  "PDF to Word": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 20 pages maximum", description: "Convert selectable PDF text into editable Word paragraphs and native tables. Preserve real images separately; no OCR.", button: "Convert to Word" },
   "Merge PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: true, hint: "Select 2–10 PDF files · Up to 20 MB each", description: "Combine multiple PDFs into one document.", button: "Merge PDFs" },
   "Split PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 100 pages maximum", description: "Choose the pages you want in a new PDF.", button: "Split PDF" },
   "Compress PDF": { accept: ".pdf,application/pdf", kind: "pdf", multiple: false, hint: "PDF · Up to 20 MB · 50 pages maximum", description: "Reduce file size by rebuilding pages as optimized images.", button: "Compress PDF" },
