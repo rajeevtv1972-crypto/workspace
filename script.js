@@ -1497,7 +1497,7 @@ document.addEventListener("keydown",event=>{if(event.key==="Escape"&&overlay.cla
 chooseFileButton.addEventListener("click",event=>{event.stopPropagation();pdfInput.click();});
 uploadZone.addEventListener("click",()=>pdfInput.click());
 uploadZone.addEventListener("keydown",event=>{if(event.key==="Enter"||event.key===" "){event.preventDefault();pdfInput.click();}});
-pdfInput.addEventListener("change",()=>showFiles(pdfInput.files));
+pdfInput.addEventListener("change",()=>{const files=[...pdfInput.files];pdfInput.value="";showFiles(files);});
 document.getElementById("removeFile").addEventListener("click",resetTool);
 ["dragenter","dragover"].forEach(type=>uploadZone.addEventListener(type,event=>{event.preventDefault();uploadZone.classList.add("dragover");}));
 ["dragleave","drop"].forEach(type=>uploadZone.addEventListener(type,event=>{event.preventDefault();uploadZone.classList.remove("dragover");}));
@@ -1515,6 +1515,8 @@ async function startProcessing() {
   convertButton.disabled = true;
   setProgress(4, "Processing your file on this device…");
   dialog.classList.add("busy");
+  document.getElementById("removeFile").disabled = true;
+  pdfInput.disabled = true;
 
   try {
     const result = await runActiveTool();
@@ -1541,6 +1543,8 @@ async function startProcessing() {
     convertButton.hidden = false;
   } finally {
     converting = false;
+    document.getElementById("removeFile").disabled = false;
+    pdfInput.disabled = false;
     dialog.classList.remove("busy");
   }
 }
