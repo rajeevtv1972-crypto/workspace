@@ -151,6 +151,14 @@ function validateFiles(files) {
 function showFiles(fileList) {
   if (converting) return;
   converterError.hidden = true;
+  chosenFiles = [];
+  conversionComplete = false;
+  readyBlob = null;
+  readyFilename = "";
+  selectedFile.hidden = true;
+  conversionStatus.hidden = true;
+  convertButton.hidden = true;
+  convertButton.disabled = true;
   const files = [...fileList];
   const problem = validateFiles(files);
   if (problem) {
