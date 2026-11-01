@@ -432,7 +432,7 @@ function mergePdfLineSegments(segments, orientation) {
   return merged;
 }
 
-function detectPdfTableRegions(operatorList, pageHeight) {
+function detectPdfTableRegions(operatorList, pageHeight, content) {
   const OPS = pdfjsLib.OPS;
   if (!OPS || OPS.constructPath === undefined || OPS.rectangle === undefined) return [];
 
@@ -470,7 +470,7 @@ function detectPdfTableRegions(operatorList, pageHeight) {
       const b=transformPdfPoint(matrix,p2[0],p2[1]);
       if(Math.abs(a[1]-b[1])<=1.5 && Math.abs(a[0]-b[0])>=10) {
         const x0=Math.min(a[0],b[0]), x1=Math.max(a[0],b[0]);
-        const y=(a[1]+b[1])/2;
+        const y=pageHeight-(a[1]+b[1])/2;
         horizontalSegments.push({position:y,start:x0,end:x1});
       } else if(Math.abs(a[0]-b[0])<=1.5 && Math.abs(a[1]-b[1])>=7.5) {
         const y0=Math.min(a[1],b[1]), y1=Math.max(a[1],b[1]);
@@ -600,7 +600,7 @@ function detectPdfTableRegions(operatorList, pageHeight) {
         if(!xs.some(x=>Math.abs(x-v.position)<1.5)) xs.push(v.position);
       }
       xs.sort((a,b)=>a-b);
-      if(xs.length<3 || xs[xs.length-1]-xs[0]<65) continue;
+      if(xs.length<6 || ys.length<3 || xs[xs.length-1]-xs[0]<100) continue;
 
       candidates.push({
         x0:xs[0],
@@ -624,7 +624,25 @@ function detectPdfTableRegions(operatorList, pageHeight) {
     );
     if(!duplicate) regions.push(candidate);
   }
-  return regions;
+  const tableCues = [
+    "description","qty","quantity","rate","amount","total","hsn","sac",
+    "uom","discount","part","labour","cgst","sgst","value","item","number"
+  ];
+  return regions.filter(region => {
+    const text=(content?.items||[])
+      .filter(item=>item && typeof item.str==="string" && item.str.trim())
+      .filter(item=>{
+        const matrix=item.transform || [0,0,0,0,0,0];
+        const x=matrix[4] || 0;
+        const y=pageHeight-(matrix[5] || 0);
+        return x>=region.x0-4 && x<=region.x1+4 &&
+          y>=region.y0-4 && y<=region.y1+4;
+      })
+      .map(item=>item.str.toLowerCase())
+      .join(" ");
+    const score=tableCues.filter(cue=>new RegExp("\\\\b"+cue+"\\\\b","i").test(text)).length;
+    return score>=4;
+  });
 }
 
 function pdfItemGeometry(item, pageHeight, styles, resolvedFonts) {
@@ -858,15 +876,7 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
         insideHorizontal:{style:"single",size:4,color:"A6A6A6"},
         insideVertical:{style:"single",size:4,color:"A6A6A6"}
       },
-      float:{
-        horizontalAnchor:"page",
-        verticalAnchor:"page",
-        absoluteHorizontalPosition:Math.round(region.x0*20),
-        absoluteVerticalPosition:Math.round(region.y0*20),
-        overlap:"overlap",
-        topFromText:0,
-        leftFromText:0
-      }
+      indent:{size:Math.round(region.x0*20),type:"dxa"}
     });
     tables.push({region,table});
   }
@@ -1048,7 +1058,7 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
   const originalPixels = context.getImageData(0,0,canvas.width,canvas.height);
   const resolvedFonts = getResolvedPdfFonts(page,content);
   const operatorList=await page.getOperatorList();
-  const tableRegions=detectPdfTableRegions(operatorList,pageHeight);
+  const tableRegions=detectPdfTableRegions(operatorList,pageHeight,content);
   const tableBlocks=buildPdfTableBlocks(
     tableRegions,content,resolvedFonts,pageHeight,renderScale,originalPixels
   );
@@ -1065,71 +1075,154 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
 }
 
 
+function groupEditableItemsIntoLines(items) {
+  const ordered=[...items].sort((a,b)=>
+    (a.y+a.height/2)-(b.y+b.height/2) || a.x-b.x
+  );
+  const lines=[];
+  for(const item of ordered) {
+    const center=item.y+item.height/2;
+    let line=null;
+    for(let i=lines.length-1;i>=Math.max(0,lines.length-4);i--) {
+      const candidate=lines[i];
+      const tolerance=Math.max(1.5,Math.min(candidate.fontSize,item.font.size)*0.24);
+      if(Math.abs(candidate.center-center)<=tolerance) {
+        line=candidate;
+        break;
+      }
+    }
+    if(!line) {
+      line={top:item.y,bottom:item.y+item.height,center,fontSize:item.font.size,items:[]};
+      lines.push(line);
+    }
+    line.items.push(item);
+    line.top=Math.min(line.top,item.y);
+    line.bottom=Math.max(line.bottom,item.y+item.height);
+    line.fontSize=Math.max(line.fontSize,item.font.size);
+    line.center=line.items.reduce((sum,value)=>sum+value.y+value.height/2,0)/line.items.length;
+  }
+  return lines.sort((a,b)=>a.top-b.top);
+}
+
+function makeFlowTextParagraph(line) {
+  const items=[...line.items].sort((a,b)=>a.x-b.x);
+  if(!items.length) return null;
+
+  const firstX=Math.max(0,items[0].x);
+  const runs=[];
+  const tabStops=[];
+  let previousRight=null;
+
+  for(const item of items) {
+    const gap=previousRight===null?0:item.x-previousRight;
+    if(previousRight!==null && gap>Math.max(8,item.font.size*0.7)) {
+      runs.push(new docx.TextRun({text:"\\t"}));
+      tabStops.push({
+        type:docx.TabStopType?.LEFT || "left",
+        position:Math.max(120,Math.round((item.x-firstX)*20))
+      });
+    } else if(previousRight!==null && gap>Math.max(1.5,item.font.size*0.12)) {
+      runs.push(new docx.TextRun({text:" "}));
+    }
+
+    runs.push(new docx.TextRun({
+      text:item.text,
+      font:item.font.font,
+      size:Math.max(8,Math.round(item.font.size*2)),
+      bold:item.font.bold,
+      italics:item.font.italics,
+      underline:item.font.underline?{type:"single"}:undefined,
+      strike:item.font.strike||undefined,
+      highlight:item.font.highlight,
+      color:item.color
+    }));
+    previousRight=Math.max(previousRight??0,item.x+item.width);
+  }
+
+  const uniqueTabs=[];
+  for(const tab of tabStops.sort((a,b)=>a.position-b.position)) {
+    if(!uniqueTabs.some(existing=>Math.abs(existing.position-tab.position)<40)) {
+      uniqueTabs.push(tab);
+    }
+  }
+
+  return new docx.Paragraph({
+    indent:{left:Math.round(firstX*20)},
+    tabStops:uniqueTabs,
+    spacing:{
+      before:0,
+      after:0,
+      line:Math.max(100,Math.round(line.fontSize*24)),
+      lineRule:"atLeast"
+    },
+    children:runs
+  });
+}
+
+function makeVerticalSpacer(points) {
+  const twips=Math.max(0,Math.round(points*20));
+  if(twips<8) return null;
+  return new docx.Paragraph({
+    spacing:{before:twips,after:0,line:20,lineRule:"exact"},
+    children:[new docx.TextRun({text:" ",size:2,color:"FFFFFF"})]
+  });
+}
+
 async function pdfToWordEditable(file) {
   if (!window.docx) throw new Error("The Word generator could not load. Refresh the page and try again.");
   const pdf = await loadPdfJs(file);
   if (pdf.numPages > 20) {
     await pdf.destroy();
-    throw new Error("This layout-preserving conversion is limited to 20 pages. Split the PDF into smaller files and convert each part.");
+    throw new Error("PDF-to-Word conversion is limited to 20 pages. Split the PDF into smaller files and convert each part.");
   }
 
   const sections = [];
   let totalTextItems = 0;
+  let totalNativeTables = 0;
+
   try {
-    for (let pageNo=1;pageNo<=pdf.numPages;pageNo++) {
-      setProgress(4+(pageNo-1)/pdf.numPages*85,"Rebuilding page "+pageNo+" of "+pdf.numPages+"…");
-      const page = await pdf.getPage(pageNo);
-      const viewport = page.getViewport({scale:1});
-      const pageWidth = viewport.width;
-      const pageHeight = viewport.height;
-      const content = await page.getTextContent();
-      // Resolve embedded PDF font objects before trying to recover their names/weights.
-      try { await page.getOperatorList(); } catch (_) {}
-      const renderScale = Math.min(2.5,2500/Math.max(pageWidth,pageHeight));
-      const background = await makePdfPageBackground(page,content,pageHeight,renderScale);
-      const textParagraphs = [];
-      const editableTables = background.tables || [];
+    for(let pageNo=1;pageNo<=pdf.numPages;pageNo++) {
+      setProgress(4+(pageNo-1)/pdf.numPages*85,"Rebuilding editable content on page "+pageNo+" of "+pdf.numPages+"…");
+      const page=await pdf.getPage(pageNo);
+      const viewport=page.getViewport({scale:1});
+      const pageWidth=viewport.width;
+      const pageHeight=viewport.height;
+      const content=await page.getTextContent();
 
-      for (const item of background.built.items) {
-        const frameWidth = Math.max(24,Math.round((item.width+2.2)*20));
-        const frameHeight = Math.max(90,Math.round(Math.max(item.height*1.9,item.font.size*1.65)*20));
-        const x = Math.max(0,Math.round(item.x*20));
-        const y = Math.max(0,Math.round(item.y*20));
-        const textRun = new docx.TextRun({
-          text:item.text,
-          font:item.font.font,
-          size:Math.max(8,Math.round(item.font.size*2)),
-          bold:item.font.bold,
-          italics:item.font.italics,
-          color:item.color
-        });
+      const renderScale=Math.min(2.0,2200/Math.max(pageWidth,pageHeight));
+      const background=await makePdfPageBackground(page,content,pageHeight,renderScale);
 
-        textParagraphs.push(new docx.Paragraph({
-          frame:{
-            type:"absolute",
-            position:{x,y},
-            width:frameWidth,
-            height:frameHeight,
-            anchor:{
-              horizontal:"page",
-              vertical:"page"
-            },
-            wrap:"none",
-            rule:"exact",
-            space:{horizontal:0,vertical:0}
-          },
-          spacing:{
-            before:0,
-            after:0,
-            line:Math.max(40,Math.round(item.font.size*20*1.3)),
-            lineRule:"exact"
-          },
-          wordWrap:false,
-          children:[textRun]
-        }));
+      const editableTables=background.tables||[];
+      totalNativeTables+=editableTables.length;
+      totalTextItems+=(content.items||[]).filter(item=>item&&typeof item.str==="string"&&item.str.trim()).length;
+
+      const lines=groupEditableItemsIntoLines(background.built.items);
+      const blocks=[
+        ...lines.map(line=>({type:"line",top:line.top,bottom:line.bottom,line})),
+        ...editableTables.map(entry=>({
+          type:"table",
+          top:entry.region.y0,
+          bottom:entry.region.y1,
+          table:entry.table
+        }))
+      ].sort((a,b)=>a.top-b.top);
+
+      const bodyChildren=[];
+      let flowCursor=0;
+      for(const block of blocks) {
+        const spacer=makeVerticalSpacer(Math.max(0,block.top-flowCursor));
+        if(spacer) bodyChildren.push(spacer);
+
+        if(block.type==="line") {
+          const paragraph=makeFlowTextParagraph(block.line);
+          if(paragraph) bodyChildren.push(paragraph);
+          flowCursor=Math.max(flowCursor,block.bottom);
+        } else {
+          bodyChildren.push(block.table);
+          flowCursor=Math.max(flowCursor,block.bottom);
+        }
       }
 
-      totalTextItems += (content.items || []).filter(item => item && typeof item.str === "string" && item.str.trim()).length;
       const imageParagraphs=[];
       for(const image of background.images||[]) {
         const imageRun=new docx.ImageRun({
@@ -1154,14 +1247,12 @@ async function pdfToWordEditable(file) {
           }
         });
         imageParagraphs.push(new docx.Paragraph({
-          spacing:{before:0,after:0,line:1,lineRule:docx.LineRuleType.EXACT},
+          spacing:{before:0,after:0,line:1,lineRule:"exact"},
           children:[imageRun]
         }));
       }
 
-      // Text, tables and genuine embedded images are independent Word objects.
-      // There is no full-page screenshot behind the editable content.
-
+      bodyChildren.unshift(...imageParagraphs);
       sections.push({
         properties:{
           page:{
@@ -1173,7 +1264,7 @@ async function pdfToWordEditable(file) {
             margin:{top:0,right:0,bottom:0,left:0,header:0,footer:0}
           }
         },
-        children:[...imageParagraphs,...textParagraphs,...editableTables.map(entry=>entry.table)]
+        children:bodyChildren.length?bodyChildren:[new docx.Paragraph({text:""})]
       });
 
       page.cleanup();
@@ -1182,19 +1273,25 @@ async function pdfToWordEditable(file) {
     await pdf.destroy();
   }
 
-  if (totalTextItems < 2) {
-    throw new Error("This PDF does not contain enough selectable text to create an editable Word document. It may be a scanned PDF; use OCR first.");
+  if(totalTextItems<2) {
+    throw new Error("This PDF does not contain enough selectable text to create an editable Word document. It may be scanned; use OCR first.");
   }
 
-  setProgress(94,"Packaging preserved page artwork and editable text…");
-  const document = new docx.Document({
+  if(totalNativeTables===0) {
+    console.warn("Workspace PDF-to-Word: no ruled tables were detected on this document; text remains editable.");
+  }
+
+  setProgress(94,"Packaging editable paragraphs and native Word tables…");
+  const document=new docx.Document({
     creator:"Workspace PDF",
     title:safeBaseName(file.name),
-    description:"Fully editable conversion. Text and ruled tables are recreated as Word objects; only genuine embedded PDF images remain pictures.",
+    description:"Editable conversion with normal Word paragraphs, native Word tables for detected ruled grids, and separate embedded image objects.",
     sections
   });
+
   return await docx.Packer.toBlob(document);
 }
+
 
 async function mergePDF(files) {
   const { PDFDocument } = getPDFLib();
