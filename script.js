@@ -917,8 +917,14 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
             referenceSize=Math.max(referenceSize,entry.geometry.font.size);
           }
           if(runs.length) {
+            const paragraphAlignment =
+              region.kind==="totals"
+                ? (c===0 ? (docx.AlignmentType?.LEFT || "left") : (docx.AlignmentType?.RIGHT || "right"))
+                : region.kind==="amountWords"
+                  ? (docx.AlignmentType?.LEFT || "left")
+                  : (r===0 || c!==2 ? (docx.AlignmentType?.CENTER || "center") : (docx.AlignmentType?.LEFT || "left"));
             paragraphs.push(new docx.Paragraph({
-              alignment:r===0 || c!==2 ? (docx.AlignmentType?.CENTER || "center") : (docx.AlignmentType?.LEFT || "left"),
+              alignment:paragraphAlignment,
               spacing:{before:0,after:0,line:Math.max(100,Math.round(referenceSize*23)),lineRule:"exact"},
               children:runs
             }));
