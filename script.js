@@ -713,8 +713,14 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
           : "details";
       return true;
     }
+    const isAmountWordsTable=region.columns.length===3 &&
+      /\bamount\s+in\s+words\b/i.test(text);
     if(isTotalsTable) {
       region.kind="totals";
+      return true;
+    }
+    if(isAmountWordsTable) {
+      region.kind="amountWords";
       return true;
     }
     return false;
@@ -905,13 +911,14 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
               underline:entry.geometry.font.underline?{type:"single"}:undefined,
               strike:entry.geometry.font.strike||undefined,
               highlight:entry.geometry.font.highlight,
-              color:entry.color
+              color:"000000"
             }));
             previousRight=Math.max(previousRight??0,entry.geometry.x+entry.geometry.width);
             referenceSize=Math.max(referenceSize,entry.geometry.font.size);
           }
           if(runs.length) {
             paragraphs.push(new docx.Paragraph({
+              alignment:r===0 || c!==2 ? (docx.AlignmentType?.CENTER || "center") : (docx.AlignmentType?.LEFT || "left"),
               spacing:{before:0,after:0,line:Math.max(100,Math.round(referenceSize*23)),lineRule:"exact"},
               children:runs
             }));
@@ -1231,7 +1238,7 @@ function makeFlowTextParagraph(line) {
       underline:item.font.underline?{type:"single"}:undefined,
       strike:item.font.strike||undefined,
       highlight:item.font.highlight,
-      color:item.color
+      color:"000000"
     }));
     previousRight=Math.max(previousRight??0,item.x+item.width);
   }
@@ -1303,14 +1310,17 @@ async function pdfToWordEditable(file) {
       const expectsPartsTable=pageText.includes("part number") && pageText.includes("hsn");
       const expectsLabourTable=pageText.includes("labour") && pageText.includes("sac code");
       const expectsTotalsTable=pageText.includes("round off") && pageText.includes("grand total");
+      const expectsAmountWordsTable=pageText.includes("amount in words");
       const hasPartsTable=editableTables.some(entry=>entry.region.kind==="parts");
       const hasLabourTable=editableTables.some(entry=>entry.region.kind==="labour");
       const hasTotalsTable=editableTables.some(entry=>entry.region.kind==="totals");
+      const hasAmountWordsTable=editableTables.some(entry=>entry.region.kind==="amountWords");
       if(
         (hasTableStructureCue && editableTables.length===0) ||
         (expectsPartsTable && !hasPartsTable) ||
         (expectsLabourTable && !hasLabourTable) ||
-        (expectsTotalsTable && !hasTotalsTable)
+        (expectsTotalsTable && !hasTotalsTable) ||
+        (expectsAmountWordsTable && !hasAmountWordsTable)
       ) {
         throw new Error(
           "This PDF contains structured invoice tables, but one or more tables could not be rebuilt as editable Word tables. " +
@@ -1329,6 +1339,7 @@ async function pdfToWordEditable(file) {
         ...lines.map(line=>({type:"line",top:line.top,bottom:line.bottom,line})),
         ...editableTables.map(entry=>({
           type:"table",
+          kind:entry.region.kind,
           top:entry.region.y0,
           bottom:entry.region.y1,
           table:entry.table
@@ -1338,7 +1349,8 @@ async function pdfToWordEditable(file) {
       const bodyChildren=[];
       let flowCursor=0;
       for(const block of blocks) {
-        const spacer=makeVerticalSpacer(Math.max(0,block.top-flowCursor));
+        const rawGap=Math.max(0,block.top-flowCursor);
+        const spacer=makeVerticalSpacer(block.kind==="amountWords" ? Math.min(rawGap,3) : rawGap);
         if(spacer) bodyChildren.push(spacer);
 
         if(block.type==="line") {
