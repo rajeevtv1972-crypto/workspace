@@ -600,7 +600,7 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
         if(!xs.some(x=>Math.abs(x-v.position)<1.5)) xs.push(v.position);
       }
       xs.sort((a,b)=>a-b);
-      if(xs.length<6 || ys.length<3 || xs[xs.length-1]-xs[0]<100) continue;
+      if(xs.length<3 || ys.length<2 || xs[xs.length-1]-xs[0]<65) continue;
 
       candidates.push({
         x0:xs[0],
@@ -641,7 +641,11 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
       .map(item=>item.str.toLowerCase())
       .join(" ");
     const score=tableCues.filter(cue=>new RegExp("\\b"+cue+"\\b","i").test(text)).length;
-    return score>=4;
+    const isDetailedInvoiceTable=region.columns.length>=7 && score>=4;
+    const isTotalsTable=region.columns.length===3 &&
+      /\\bround\\s+off\\b/i.test(text) &&
+      /\\bgrand\\s+total\\b/i.test(text);
+    return isDetailedInvoiceTable || isTotalsTable;
   });
 }
 
@@ -1208,10 +1212,23 @@ async function pdfToWordEditable(file) {
       const hasTableStructureCue=
         strongTableCues>=3 &&
         ["description","total value","taxable amount","discount","rate"].some(cue=>pageText.includes(cue));
-      if(hasTableStructureCue && editableTables.length===0) {
+      const expectsPartsTable=pageText.includes("part number") && pageText.includes("hsn");
+      const expectsLabourTable=pageText.includes("labour") && pageText.includes("sac code");
+      const expectsTotalsTable=pageText.includes("round off") && pageText.includes("grand total");
+      const hasPartsTable=editableTables.some(entry=>entry.region.columns.length>=7 &&
+        /part number|hsn/i.test((content.items||[]).map(item=>item.str||"").join(" ")));
+      const hasLabourTable=editableTables.some(entry=>entry.region.columns.length>=7 &&
+        /sac code/i.test((content.items||[]).map(item=>item.str||"").join(" ")));
+      const hasTotalsTable=editableTables.some(entry=>entry.region.columns.length===3);
+      if(
+        (hasTableStructureCue && editableTables.length===0) ||
+        (expectsPartsTable && !hasPartsTable) ||
+        (expectsLabourTable && !hasLabourTable) ||
+        (expectsTotalsTable && !hasTotalsTable)
+      ) {
         throw new Error(
-          "This PDF contains structured invoice/table data, but its grid could not be rebuilt as an editable Word table. " +
-          "The conversion was stopped rather than returning a document with a missing table."
+          "This PDF contains structured invoice tables, but one or more tables could not be rebuilt as editable Word tables. " +
+          "The conversion was stopped rather than returning an incomplete document."
         );
       }
 
