@@ -1,6 +1,6 @@
 # Workspace PDF
 
-A browser-based PDF toolbox. Selected files are processed locally in the visitor's browser; the conversion code does not upload documents to a Workspace conversion server.
+A browser-based PDF toolbox. After a valid file is selected, processing starts automatically and progress is shown. When processing completes, the user gets a Download button; the file downloads only after that button is clicked, and the same button remains available as Download again. Selected files are processed locally in the visitor's browser; the conversion code does not upload documents to a Workspace conversion server.
 
 ## Tools
 
