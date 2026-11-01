@@ -98,6 +98,7 @@ function resetTool() {
   readyFilename = "";
   converting = false;
   pdfInput.value = "";
+  uploadZone.hidden = false;
   selectedFile.hidden = true;
   converterError.hidden = true;
   conversionStatus.hidden = true;
@@ -172,6 +173,7 @@ function showFiles(fileList) {
   conversionComplete = false;
   readyBlob = null;
   readyFilename = "";
+  uploadZone.hidden = true;
   convertButton.hidden = true;
   convertButton.disabled = true;
   conversionStatus.hidden = false;
