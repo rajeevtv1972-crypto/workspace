@@ -1256,7 +1256,9 @@ function makeFlowTextParagraph(line) {
 }
 
 function makeVerticalSpacer(points) {
-  const twips=Math.max(0,Math.round(points*20));
+  // Compact the gaps slightly to absorb Word's line/table layout overhead
+  // while keeping the page's overall reading order and two-page structure.
+  const twips=Math.max(0,Math.round(points*0.84*20));
   if(twips<8) return null;
   return new docx.Paragraph({
     spacing:{before:twips,after:0,line:20,lineRule:"exact"},
@@ -1320,7 +1322,7 @@ async function pdfToWordEditable(file) {
       totalTextItems+=(content.items||[]).filter(item=>item&&typeof item.str==="string"&&item.str.trim()).length;
 
       const lines=groupEditableItemsIntoLines(background.built.items)
-        .filter(line => !/\\bpage\\s+\\d+\\s+of\\s+\\d+\\b/i.test(
+        .filter(line => !/\bpage\s+\d+\s+of\s+\d+\b/i.test(
           line.items.map(item=>item.text).join(" ")
         ));
       const blocks=[
