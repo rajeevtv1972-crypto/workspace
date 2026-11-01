@@ -60,6 +60,8 @@ let activeTool = "PDF to Word";
 let chosenFiles = [];
 let converting = false;
 let conversionComplete = false;
+let readyBlob = null;
+let readyFilename = "";
 
 if (window.pdfjsLib) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -92,6 +94,9 @@ function closeTool() {
 function resetTool() {
   chosenFiles = [];
   conversionComplete = false;
+  readyBlob = null;
+  readyFilename = "";
+  converting = false;
   pdfInput.value = "";
   selectedFile.hidden = true;
   converterError.hidden = true;
@@ -99,7 +104,8 @@ function resetTool() {
   progressBar.classList.remove("indeterminate");
   progressBar.style.width = "12%";
   convertButton.disabled = true;
-  convertButton.textContent = TOOL_CONFIG[activeTool].button;
+  convertButton.hidden = true;
+  convertButton.textContent = "Download";
   dialog.classList.remove("busy");
   document.getElementById("selectedFileName").textContent = "";
   document.getElementById("selectedFileSize").textContent = "";
@@ -143,6 +149,7 @@ function validateFiles(files) {
   return "";
 }
 function showFiles(fileList) {
+  if (converting) return;
   converterError.hidden = true;
   const files = [...fileList];
   const problem = validateFiles(files);
@@ -151,12 +158,24 @@ function showFiles(fileList) {
     converterError.hidden = false;
     return;
   }
+
+  // A new selection always starts a fresh job and discards any previous result.
   chosenFiles = files;
+  conversionComplete = false;
+  readyBlob = null;
+  readyFilename = "";
+  convertButton.hidden = true;
+  convertButton.disabled = true;
+  conversionStatus.hidden = false;
+  progressBar.style.width = "4%";
+  progressBar.classList.remove("indeterminate");
+  document.getElementById("statusMessage").textContent = "File selected. Preparing your conversion…";
+
   document.getElementById("selectedFileName").textContent = files.length === 1 ? files[0].name : files.length + " files selected";
   const total = files.reduce((sum, file) => sum + file.size, 0);
   document.getElementById("selectedFileSize").textContent = files.length === 1 ? formatBytes(total) : formatBytes(total) + " total";
   selectedFile.hidden = false;
-  convertButton.disabled = false;
+  startProcessing();
 }
 function setProgress(percent, message) {
   progressBar.classList.remove("indeterminate");
@@ -1484,32 +1503,59 @@ document.getElementById("removeFile").addEventListener("click",resetTool);
 ["dragleave","drop"].forEach(type=>uploadZone.addEventListener(type,event=>{event.preventDefault();uploadZone.classList.remove("dragover");}));
 uploadZone.addEventListener("drop",event=>showFiles(event.dataTransfer.files));
 
-convertButton.addEventListener("click",async()=>{
-  if(conversionComplete){resetTool();return;}
-  if(!chosenFiles.length||converting)return;
-  converting=true;
-  converterError.hidden=true;
-  conversionStatus.hidden=false;
-  setProgress(4,"Preparing local conversion…");
-  convertButton.disabled=true;
-  convertButton.textContent="Working on your device…";
+async function startProcessing() {
+  if (!chosenFiles.length || converting) return;
+  converting = true;
+  conversionComplete = false;
+  readyBlob = null;
+  readyFilename = "";
+  converterError.hidden = true;
+  conversionStatus.hidden = false;
+  convertButton.hidden = true;
+  convertButton.disabled = true;
+  setProgress(4, "Processing your file on this device…");
   dialog.classList.add("busy");
-  try{
-    const result=await runActiveTool();
-    downloadBlob(result.blob,result.name);
-    setProgress(100,"Done! Your file is ready.");
-    conversionComplete=true;
-    convertButton.textContent="Use this tool again";
-    convertButton.disabled=false;
-  }catch(error){
-    converterError.textContent=error.message||"Something went wrong. Please try again.";
-    converterError.hidden=false;
-    conversionStatus.hidden=true;
-    convertButton.textContent="Try again";
-    convertButton.disabled=false;
-  }finally{
-    converting=false;
+
+  try {
+    const result = await runActiveTool();
+    if (!(result.blob instanceof Blob) || result.blob.size === 0 || !result.name) {
+      throw new Error("The conversion did not produce a valid file. Please try again.");
+    }
+
+    readyBlob = result.blob;
+    readyFilename = result.name;
+    conversionComplete = true;
+    setProgress(100, "Processing complete. Your file is ready to download.");
+    convertButton.textContent = "Download";
+    convertButton.disabled = false;
+    convertButton.hidden = false;
+  } catch (error) {
+    readyBlob = null;
+    readyFilename = "";
+    conversionComplete = false;
+    converterError.textContent = error.message || "Something went wrong. Please try again.";
+    converterError.hidden = false;
+    conversionStatus.hidden = true;
+    convertButton.textContent = "Try again";
+    convertButton.disabled = false;
+    convertButton.hidden = false;
+  } finally {
+    converting = false;
     dialog.classList.remove("busy");
+  }
+}
+
+convertButton.addEventListener("click", async () => {
+  // Conversion has already finished. Download only after an explicit click.
+  if (conversionComplete && readyBlob) {
+    downloadBlob(readyBlob, readyFilename);
+    convertButton.textContent = "Download again";
+    return;
+  }
+
+  // On a failed job, allow retry without asking the user to reselect the file.
+  if (!converting && chosenFiles.length) {
+    await startProcessing();
   }
 });
 
