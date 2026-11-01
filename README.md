@@ -4,7 +4,7 @@ A browser-based PDF toolbox. After a valid file is selected, processing starts a
 
 ## Tools
 
-- PDF to Word: recreates selectable PDF text as normal-flow, editable Word paragraphs (not absolute-positioned text frames) and detects ruled table grids from PDF vector paths. Detected grids are rebuilt as native Word tables with editable rows/cells and text. Text stays text; genuine embedded PDF images such as logos remain separate image objects. Font names/weights, run sizes and text colours are recovered where available.
+- PDF to Word: for digital PDFs with a selectable text layer, extracts text spans, fonts and coordinates without OCR; groups text into editable Word paragraphs; detects ruled vector grids; and rebuilds Parts, Labour and Totals grids as native Word tables with editable cells. Genuine embedded images such as logos remain separate image objects. It does not put full-page screenshots behind the Word document.
 - Word to PDF: converts DOCX to PDF with LibreOffice compiled to WebAssembly, running in a browser worker. This uses an office document layout engine rather than HTML reconstruction, so page geometry, fonts, floating objects, images, tables, headers/footers and section breaks are handled much more faithfully. The first use downloads the roughly 240 MB engine from a CORS-enabled static runtime host; the browser caches it for later conversions. The DOCX file itself is processed locally and is not uploaded. Older binary .doc files are not supported.
 - Merge PDF: combines multiple PDFs.
 - Split PDF: extracts selected pages into a new PDF.
@@ -18,7 +18,7 @@ A browser-based PDF toolbox. After a valid file is selected, processing starts a
 
 The converter does not place a full-page screenshot behind the Word document. Text is rebuilt as normal Word paragraphs so it can be selected, edited, copied and reflowed naturally. Detected ruled grids become native Word tables with editable cells. Original embedded images (such as a logo) remain separate picture objects.
 
-Text and table cells are real Word content. Users can select and edit paragraphs, change table values, insert or remove rows and columns, and apply Word table formatting. Table reconstruction currently depends on visible vector rules; borderless tables and scanned/image-only tables may need OCR or manual reconstruction. Decorative vector artwork that is not a text/table object may not be reproduced. Exact font reproduction depends on the original fonts being available in the PDF and in the Word viewer. Scanned text that is only part of an image is not editable unless OCR is performed first.
+Text and table cells are real Word content. Users can select and edit paragraphs, change table values, insert or remove rows and columns, and apply Word table formatting. Table reconstruction currently depends on visible vector rules; borderless tables may need manual reconstruction. This non-OCR mode stops with an error for scanned/image-only PDFs instead of creating an empty or misleading document. Decorative vector artwork that is not a text/table object may not be reproduced. Exact font reproduction depends on the original fonts being available in the PDF and in the Word viewer. Scanned text that is only part of an image is not editable unless OCR is performed first.
 
 ## Browser libraries and Word-to-PDF runtime
 
