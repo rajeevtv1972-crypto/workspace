@@ -640,7 +640,7 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
       })
       .map(item=>item.str.toLowerCase())
       .join(" ");
-    const score=tableCues.filter(cue=>new RegExp("\\\\b"+cue+"\\\\b","i").test(text)).length;
+    const score=tableCues.filter(cue=>new RegExp("\\b"+cue+"\\b","i").test(text)).length;
     return score>=4;
   });
 }
