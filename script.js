@@ -1199,6 +1199,22 @@ async function pdfToWordEditable(file) {
       const background=await makePdfPageBackground(page,content,pageHeight,renderScale);
 
       const editableTables=background.tables||[];
+      const pageText=(content.items||[])
+        .map(item=>String(item?.str||"").toLowerCase())
+        .join(" ");
+      const strongTableCues=[
+        "part number","hsn","sac code","uom","qty","cgst","sgst"
+      ].filter(cue=>pageText.includes(cue)).length;
+      const hasTableStructureCue=
+        strongTableCues>=3 &&
+        ["description","total value","taxable amount","discount","rate"].some(cue=>pageText.includes(cue));
+      if(hasTableStructureCue && editableTables.length===0) {
+        throw new Error(
+          "This PDF contains structured invoice/table data, but its grid could not be rebuilt as an editable Word table. " +
+          "The conversion was stopped rather than returning a document with a missing table."
+        );
+      }
+
       totalNativeTables+=editableTables.length;
       totalTextItems+=(content.items||[]).filter(item=>item&&typeof item.str==="string"&&item.str.trim()).length;
 
