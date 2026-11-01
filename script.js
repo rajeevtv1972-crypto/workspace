@@ -643,13 +643,13 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
     const score=tableCues.filter(cue=>new RegExp("\\b"+cue+"\\b","i").test(text)).length;
     const isDetailedInvoiceTable=region.columns.length>=7 && score>=4;
     const isTotalsTable=region.columns.length===3 &&
-      /\\bround\\s+off\\b/i.test(text) &&
-      /\\bgrand\\s+total\\b/i.test(text);
+      /\bround\s+off\b/i.test(text) &&
+      /\bgrand\s+total\b/i.test(text);
 
     if(isDetailedInvoiceTable) {
-      region.kind=/\\bpart\\s+number\\b|\\bhsn\\b/i.test(text)
+      region.kind=/\bpart\s+number\b|\bhsn\b/i.test(text)
         ? "parts"
-        : /\\bsac\\s+code\\b/i.test(text)
+        : /\bsac\s+code\b/i.test(text)
           ? "labour"
           : "details";
       return true;
