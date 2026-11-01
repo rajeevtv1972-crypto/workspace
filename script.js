@@ -947,6 +947,20 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
         }));
       }
 
+      if(region.kind==="totals" && region.x0>20) {
+        docxCells.unshift(new docx.TableCell({
+          width:{size:Math.round(region.x0*20),type:"dxa"},
+          margins:{top:0,bottom:0,left:0,right:0},
+          borders:{
+            top:{style:"nil",size:0,color:"FFFFFF"},
+            bottom:{style:"nil",size:0,color:"FFFFFF"},
+            left:{style:"nil",size:0,color:"FFFFFF"},
+            right:{style:"nil",size:0,color:"FFFFFF"}
+          },
+          children:[new docx.Paragraph({children:[new docx.TextRun({text:""})]})]
+        }));
+      }
+
       const rowHeight=Math.max(100,Math.round((region.rows[r+1]-region.rows[r])*20));
       rows.push(new docx.TableRow({
         height:{value:rowHeight,rule:"atLeast"},
@@ -956,9 +970,12 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
       }));
     }
 
-    const columnWidths=region.columns.slice(0,-1).map((x,index)=>
+    let columnWidths=region.columns.slice(0,-1).map((x,index)=>
       Math.max(120,Math.round((region.columns[index+1]-x)*20))
     );
+    if(region.kind==="totals" && region.x0>20) {
+      columnWidths=[Math.round(region.x0*20),...columnWidths];
+    }
     const tableWidth=columnWidths.reduce((sum,value)=>sum+value,0);
     const table=new docx.Table({
       rows,
@@ -975,7 +992,7 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
         insideHorizontal:{style:"single",size:4,color:"A6A6A6"},
         insideVertical:{style:"single",size:4,color:"A6A6A6"}
       },
-      indent:{size:Math.round(region.x0*20),type:"dxa"}
+      indent:{size:region.kind==="totals" ? 0 : Math.round(region.x0*20),type:"dxa"}
     });
     tables.push({region,table});
   }
