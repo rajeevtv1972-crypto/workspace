@@ -645,7 +645,20 @@ function detectPdfTableRegions(operatorList, pageHeight, content) {
     const isTotalsTable=region.columns.length===3 &&
       /\\bround\\s+off\\b/i.test(text) &&
       /\\bgrand\\s+total\\b/i.test(text);
-    return isDetailedInvoiceTable || isTotalsTable;
+
+    if(isDetailedInvoiceTable) {
+      region.kind=/\\bpart\\s+number\\b|\\bhsn\\b/i.test(text)
+        ? "parts"
+        : /\\bsac\\s+code\\b/i.test(text)
+          ? "labour"
+          : "details";
+      return true;
+    }
+    if(isTotalsTable) {
+      region.kind="totals";
+      return true;
+    }
+    return false;
   });
 }
 
@@ -1215,11 +1228,9 @@ async function pdfToWordEditable(file) {
       const expectsPartsTable=pageText.includes("part number") && pageText.includes("hsn");
       const expectsLabourTable=pageText.includes("labour") && pageText.includes("sac code");
       const expectsTotalsTable=pageText.includes("round off") && pageText.includes("grand total");
-      const hasPartsTable=editableTables.some(entry=>entry.region.columns.length>=7 &&
-        /part number|hsn/i.test((content.items||[]).map(item=>item.str||"").join(" ")));
-      const hasLabourTable=editableTables.some(entry=>entry.region.columns.length>=7 &&
-        /sac code/i.test((content.items||[]).map(item=>item.str||"").join(" ")));
-      const hasTotalsTable=editableTables.some(entry=>entry.region.columns.length===3);
+      const hasPartsTable=editableTables.some(entry=>entry.region.kind==="parts");
+      const hasLabourTable=editableTables.some(entry=>entry.region.kind==="labour");
+      const hasTotalsTable=editableTables.some(entry=>entry.region.kind==="totals");
       if(
         (hasTableStructureCue && editableTables.length===0) ||
         (expectsPartsTable && !hasPartsTable) ||
