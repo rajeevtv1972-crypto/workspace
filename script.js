@@ -260,6 +260,64 @@ function medianChannel(values) {
   return values[Math.floor(values.length/2)];
 }
 
+function pdfAnnotationColorToWord(rgb) {
+  const palette=[
+    ["yellow",[255,255,0]],["brightGreen",[0,255,0]],["turquoise",[0,255,255]],
+    ["pink",[255,0,255]],["blue",[0,0,255]],["red",[255,0,0]],
+    ["darkBlue",[0,0,128]],["teal",[0,128,128]],["green",[0,128,0]],
+    ["violet",[128,0,128]],["darkRed",[128,0,0]],["darkYellow",[128,128,0]],
+    ["darkGray",[128,128,128]],["lightGray",[192,192,192]]
+  ];
+  let best="yellow",distance=Infinity;
+  for(const [name,color] of palette) {
+    const d=Math.pow((rgb[0]||0)-color[0],2)+
+      Math.pow((rgb[1]||0)-color[1],2)+
+      Math.pow((rgb[2]||0)-color[2],2);
+    if(d<distance) {distance=d;best=name;}
+  }
+  return best;
+}
+
+function buildPdfMarkupAnnotationBoxes(annotations,pageView) {
+  const [xMin,yMin,xMax,yMax]=pageView;
+  const boxes=[];
+  for(const annotation of annotations||[]) {
+    const subtype=String(annotation.subtype||"");
+    if(!["Highlight","Underline","StrikeOut","Squiggly"].includes(subtype)) continue;
+    const quads=Array.from(annotation.quadPoints||[]);
+    const rgb=annotation.color?Array.from(annotation.color):[255,255,0];
+    for(let i=0;i+7<quads.length;i+=8) {
+      const xs=[],ys=[];
+      for(let p=0;p<8;p+=2) {
+        xs.push(quads[i+p]-xMin);
+        ys.push(yMax-quads[i+p+1]);
+      }
+      boxes.push({
+        subtype,
+        left:Math.min(...xs),
+        right:Math.max(...xs),
+        top:Math.min(...ys),
+        bottom:Math.max(...ys),
+        highlight:subtype==="Highlight"?pdfAnnotationColorToWord(rgb):undefined
+      });
+    }
+  }
+  return boxes;
+}
+
+function applyPdfMarkupToFont(font,box,annotationBoxes) {
+  for(const annotation of annotationBoxes||[]) {
+    const overlapWidth=Math.max(0,Math.min(box.right,annotation.right)-Math.max(box.left,annotation.left));
+    const overlapHeight=Math.max(0,Math.min(box.bottom,annotation.bottom)-Math.max(box.top,annotation.top));
+    const area=Math.max(1,(box.right-box.left)*(box.bottom-box.top));
+    if((overlapWidth*overlapHeight)/area<0.08) continue;
+    if(annotation.subtype==="Highlight") font.highlight=annotation.highlight||"yellow";
+    if(annotation.subtype==="Underline"||annotation.subtype==="Squiggly") font.underline=true;
+    if(annotation.subtype==="StrikeOut") font.strike=true;
+  }
+  return font;
+}
+
 function sampleCanvasPixel(data, width, height, x, y) {
   x = Math.max(0,Math.min(width-1,Math.round(x)));
   y = Math.max(0,Math.min(height-1,Math.round(y)));
@@ -320,7 +378,7 @@ function sampleTextInk(imageData, rect, background) {
   return values.map(channel=>medianChannel(channel).toString(16).padStart(2,"0")).join("").toUpperCase();
 }
 
-function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale, imageData, context, excludedItems = new Set()) {
+function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale, imageData, context, excludedItems = new Set(), annotationBoxes = []) {
   const output = [];
   const {width:canvasWidth,height:canvasHeight} = context.canvas;
   let maskedCount = 0;
@@ -359,6 +417,7 @@ function buildEditableTextItems(content, resolvedFonts, pageHeight, renderScale,
     // Sample background and glyph color before any masking takes place.
     const background = sampleLocalBackground(imageData,canvasBox);
     const ink = sampleTextInk(imageData,canvasBox,background);
+    applyPdfMarkupToFont(font,box,annotationBoxes);
 
     // Remove only the original glyph area. Page lines, table borders, logos,
     // stamps and other non-text artwork remain in the rendered page layer.
@@ -749,7 +808,7 @@ function splitPdfTableTextAcrossColumns(item, geometry, region) {
   }));
 }
 
-function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, renderScale, imageData) {
+function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, renderScale, imageData, annotationBoxes = []) {
   const excludedItems=new Set();
   const tables=[];
 
@@ -785,6 +844,7 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
           width:chunk.geometry.width*renderScale+1.2,
           height:chunk.geometry.height*renderScale+1.2
         };
+        applyPdfMarkupToFont(chunk.geometry.font,inkBox,annotationBoxes);
         cells[row][col].push({
           item:{...item,str:chunk.text},
           geometry:chunk.geometry,
@@ -836,6 +896,9 @@ function buildPdfTableBlocks(regions, content, resolvedFonts, pageHeight, render
               size:Math.max(8,Math.round(entry.geometry.font.size*2)),
               bold:entry.geometry.font.bold,
               italics:entry.geometry.font.italics,
+              underline:entry.geometry.font.underline?{type:"single"}:undefined,
+              strike:entry.geometry.font.strike||undefined,
+              highlight:entry.geometry.font.highlight,
               color:entry.color
             }));
             previousRight=Math.max(previousRight??0,entry.geometry.x+entry.geometry.width);
@@ -1075,12 +1138,16 @@ async function makePdfPageBackground(page, content, pageHeight, renderScale) {
   const originalPixels = context.getImageData(0,0,canvas.width,canvas.height);
   const resolvedFonts = getResolvedPdfFonts(page,content);
   const operatorList=await page.getOperatorList();
+  let annotations=[];
+  try { annotations=await page.getAnnotations({intent:"display"}); } catch (_) {}
+  const annotationBoxes=buildPdfMarkupAnnotationBoxes(annotations,page.view);
   const tableRegions=detectPdfTableRegions(operatorList,pageHeight,content);
   const tableBlocks=buildPdfTableBlocks(
-    tableRegions,content,resolvedFonts,pageHeight,renderScale,originalPixels
+    tableRegions,content,resolvedFonts,pageHeight,renderScale,originalPixels,annotationBoxes
   );
   const built=buildEditableTextItems(
-    content,resolvedFonts,pageHeight,renderScale,originalPixels,context,tableBlocks.excludedItems
+    content,resolvedFonts,pageHeight,renderScale,originalPixels,context,
+    tableBlocks.excludedItems,annotationBoxes
   );
   const images=await extractPdfImageBlocks(page,operatorList,pageHeight);
 
